@@ -21,8 +21,18 @@ Or build from source:
 ```bash
 git clone https://github.com/yuzong/mdview
 cd mdview
-go build -o mdview .
+make install        # installs to ~/.local/bin (default)
+# PREFIX=/usr/local make install   # custom prefix
 ```
+
+### Make targets
+
+| Target | Description |
+|--------|-------------|
+| `make build` | Build `./mdview` binary in the project directory |
+| `make install` | Build and install to `$PREFIX/bin` (default: `~/.local/bin`) |
+| `make uninstall` | Remove installed binary |
+| `make clean` | Remove local `./mdview` binary |
 
 ## Usage
 
