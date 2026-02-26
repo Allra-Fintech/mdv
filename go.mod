@@ -1,4 +1,4 @@
-module github.com/yuzong/mdview
+module github.com/Allra-Fintech/mdv
 
 go 1.22
 

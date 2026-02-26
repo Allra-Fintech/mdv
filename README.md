@@ -13,14 +13,14 @@ A CLI tool that renders Markdown files in the browser with GitHub-style formatti
 ## Install
 
 ```bash
-go install github.com/yuzong/mdview@latest
+go install github.com/Allra-Fintech/mdv@latest
 ```
 
 Or build from source:
 
 ```bash
-git clone https://github.com/yuzong/mdview
-cd mdview
+git clone https://github.com/Allra-Fintech/mdv
+cd mdv
 make install        # installs to ~/.local/bin (default) as mdv
 # PREFIX=/usr/local make install   # custom prefix
 ```
