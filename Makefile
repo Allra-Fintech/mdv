@@ -1,4 +1,4 @@
-BIN     := mdview
+BIN     := mdv
 PREFIX  ?= $(HOME)/.local
 
 .PHONY: build install uninstall clean

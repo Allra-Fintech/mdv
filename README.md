@@ -1,4 +1,4 @@
-# mdview
+# mdv
 
 A CLI tool that renders Markdown files in the browser with GitHub-style formatting and live reload on file changes.
 
@@ -21,7 +21,7 @@ Or build from source:
 ```bash
 git clone https://github.com/yuzong/mdview
 cd mdview
-make install        # installs to ~/.local/bin (default)
+make install        # installs to ~/.local/bin (default) as mdv
 # PREFIX=/usr/local make install   # custom prefix
 ```
 
@@ -29,15 +29,15 @@ make install        # installs to ~/.local/bin (default)
 
 | Target | Description |
 |--------|-------------|
-| `make build` | Build `./mdview` binary in the project directory |
+| `make build` | Build `./mdv` binary in the project directory |
 | `make install` | Build and install to `$PREFIX/bin` (default: `~/.local/bin`) |
 | `make uninstall` | Remove installed binary |
-| `make clean` | Remove local `./mdview` binary |
+| `make clean` | Remove local `./mdv` binary |
 
 ## Usage
 
 ```
-mdview [flags] <file.md>
+mdv [flags] <file.md>
 ```
 
 ### Flags
@@ -52,13 +52,13 @@ mdview [flags] <file.md>
 
 ```bash
 # Open README.md in browser with live reload
-mdview README.md
+mdv README.md
 
 # Use a custom port and dark highlight theme
-mdview --port 8080 --theme monokai README.md
+mdv --port 8080 --theme monokai README.md
 
 # Print URL but don't open browser
-mdview --no-browser README.md
+mdv --no-browser README.md
 ```
 
 ## Live Reload
