@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Build binary in project directory
-make build          # or: go build -o mdview .
+make build          # or: go build -o mdv .
 
 # Install to ~/.local/bin (default)
 make install
