@@ -20,15 +20,12 @@ type server struct {
 // newServer builds the HTTP mux with all routes registered.
 func newServer(filePath string, theme string, hub *Hub) *http.ServeMux {
 	md := newMarkdown(theme)
+	baseDir := filepath.Dir(filePath)
 
 	mux := http.NewServeMux()
 
 	// GET / — full HTML page
-	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/" {
-			http.NotFound(w, r)
-			return
-		}
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		content, err := renderFile(filePath, theme)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("render error: %v", err), http.StatusInternalServerError)
@@ -87,6 +84,10 @@ func newServer(filePath string, theme string, hub *Hub) *http.ServeMux {
 			}
 		}
 	})
+
+	// GET /<asset> — static files from the markdown file directory.
+	// This makes relative markdown links like ./screen.gif resolve correctly.
+	mux.Handle("GET /", http.FileServer(http.Dir(baseDir)))
 
 	_ = md // md is used via renderFile closure below; suppress unused warning
 	return mux

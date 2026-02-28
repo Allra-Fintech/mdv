@@ -2,11 +2,16 @@
 
 A CLI tool that renders Markdown files in the browser with GitHub-style formatting and live reload on file changes.
 
+## Demo
+
+![mdv demo](./screen.gif)
+
 ## Features
 
 - GitHub Flavored Markdown (GFM) — tables, strikethrough, autolinks, task lists
 - Server-side syntax highlighting via [Chroma](https://github.com/alecthomas/chroma) — no client-side JS
 - Live reload via SSE — browser updates without full page reload, scroll position preserved
+- Serves relative local assets from the Markdown directory (e.g. `![demo](./recording.gif)`)
 - Auto-increments port if the default is taken (up to 20 attempts)
 - Binds to `127.0.0.1` only — no LAN exposure
 
@@ -61,16 +66,6 @@ mdv --port 8080 --theme monokai README.md
 mdv --no-browser README.md
 ```
 
-## Live Reload
-
-1. Save your Markdown file
-2. fsnotify detects the write/create event
-3. The SSE hub broadcasts to all connected browser tabs
-4. Each tab fetches `/content` and swaps `#content` innerHTML
-5. Scroll position is preserved — no full page reload
-
-Works with atomic-write editors (Vim, JetBrains) by watching both the file and its parent directory.
-
 ## HTTP Routes
 
 | Route | Description |
@@ -78,6 +73,7 @@ Works with atomic-write editors (Vim, JetBrains) by watching both the file and i
 | `GET /` | Full HTML page (template + rendered markdown) |
 | `GET /content` | HTML fragment only (for SSE partial refresh) |
 | `GET /events` | SSE stream for live reload |
+| `GET /<asset>` | Static files from the Markdown file directory |
 
 ## Architecture
 
