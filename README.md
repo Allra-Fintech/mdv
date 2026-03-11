@@ -70,8 +70,9 @@ mdv --no-browser README.md
 
 | Route | Description |
 |-------|-------------|
-| `GET /` | Full HTML page (template + rendered markdown) |
-| `GET /content` | HTML fragment only (for SSE partial refresh) |
+| `GET /` | Redirects to `/<filename>.md` |
+| `GET /<file>.md` | Full HTML page (template + rendered markdown) |
+| `GET /content?path=/<file>.md` | HTML fragment only (for SSE partial refresh) |
 | `GET /events` | SSE stream for live reload |
 | `GET /<asset>` | Static files from the Markdown file directory |
 
