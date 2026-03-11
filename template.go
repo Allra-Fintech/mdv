@@ -165,7 +165,7 @@ img { max-width: 100%; height: auto; }
   var es = new EventSource('/events');
   es.addEventListener('reload', function () {
     var scrollY = window.scrollY;
-    fetch('/content')
+    fetch('/content?path=' + encodeURIComponent('{{.Path}}'))
       .then(function (r) { return r.text(); })
       .then(function (html) {
         content.innerHTML = html;
@@ -188,5 +188,6 @@ img { max-width: 100%; height: auto; }
 // pageData is the data passed to pageTemplate.
 type pageData struct {
 	Title   string
+	Path    string
 	Content template.HTML
 }

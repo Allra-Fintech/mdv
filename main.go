@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"time"
 )
@@ -42,7 +43,7 @@ func main() {
 	mux := newServer(filePath, *theme, hub)
 
 	addr := fmt.Sprintf("127.0.0.1:%d", actualPort)
-	url := fmt.Sprintf("http://%s", addr)
+	url := fmt.Sprintf("http://%s/%s", addr, filepath.Base(filePath))
 	log.Printf("serving %s at %s", filePath, url)
 
 	if !*noBrowser {

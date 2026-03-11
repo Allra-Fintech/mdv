@@ -39,11 +39,10 @@ func watchFile(path string, hub *Hub) {
 			if !ok {
 				return
 			}
-			if event.Name != absPath {
-				continue
-			}
 			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
-				hub.Broadcast()
+				if filepath.Ext(event.Name) == ".md" || event.Name == absPath {
+					hub.Broadcast()
+				}
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {

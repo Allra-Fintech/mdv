@@ -24,26 +24,21 @@ func newServer(filePath string, theme string, hub *Hub) *http.ServeMux {
 
 	mux := http.NewServeMux()
 
-	// GET / — full HTML page
+	mainPath := "/" + filepath.Base(filePath)
+
+	// GET / — redirect to /filename.md
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		content, err := renderFile(filePath, theme)
-		if err != nil {
-			http.Error(w, fmt.Sprintf("render error: %v", err), http.StatusInternalServerError)
-			return
-		}
-		title := filepath.Base(filePath)
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := pageTemplate.Execute(w, pageData{
-			Title:   title,
-			Content: template.HTML(content),
-		}); err != nil {
-			log.Printf("template execute: %v", err)
-		}
+		http.Redirect(w, r, mainPath, http.StatusFound)
 	})
 
-	// GET /content — HTML fragment for SSE-triggered partial refresh
+	// GET /content — HTML fragment for SSE-triggered partial refresh.
+	// Accepts optional ?path=/other.md to render a different file.
 	mux.HandleFunc("GET /content", func(w http.ResponseWriter, r *http.Request) {
-		content, err := renderFile(filePath, theme)
+		target := filePath
+		if p := r.URL.Query().Get("path"); p != "" {
+			target = filepath.Join(baseDir, filepath.FromSlash(p))
+		}
+		content, err := renderFile(target, theme)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("render error: %v", err), http.StatusInternalServerError)
 			return
@@ -85,9 +80,27 @@ func newServer(filePath string, theme string, hub *Hub) *http.ServeMux {
 		}
 	})
 
-	// GET /<asset> — static files from the markdown file directory.
-	// This makes relative markdown links like ./screen.gif resolve correctly.
-	mux.Handle("GET /", http.FileServer(http.Dir(baseDir)))
+	// GET /<path> — render .md files as HTML pages; serve other files statically.
+	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		if filepath.Ext(r.URL.Path) == ".md" {
+			absPath := filepath.Join(baseDir, filepath.FromSlash(r.URL.Path))
+			content, err := renderFile(absPath, theme)
+			if err != nil {
+				http.Error(w, fmt.Sprintf("render error: %v", err), http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := pageTemplate.Execute(w, pageData{
+				Title:   filepath.Base(absPath),
+				Path:    r.URL.Path,
+				Content: template.HTML(content),
+			}); err != nil {
+				log.Printf("template execute: %v", err)
+			}
+			return
+		}
+		http.FileServer(http.Dir(baseDir)).ServeHTTP(w, r)
+	})
 
 	_ = md // md is used via renderFile closure below; suppress unused warning
 	return mux
