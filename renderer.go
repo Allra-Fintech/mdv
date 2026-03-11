@@ -2,13 +2,19 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	"strings"
+	"unicode"
 
 	chromahtml "github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
+	gast "github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
+	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
 // newMarkdown returns a goldmark instance configured with GFM extensions
@@ -26,7 +32,9 @@ func newMarkdown(theme string) goldmark.Markdown {
 			),
 		),
 		goldmark.WithParserOptions(
-			parser.WithAutoHeadingID(),
+			parser.WithASTTransformers(
+				util.Prioritized(&unicodeHeadingIDTransformer{}, 100),
+			),
 		),
 		goldmark.WithRendererOptions(
 			html.WithHardWraps(),
@@ -34,6 +42,72 @@ func newMarkdown(theme string) goldmark.Markdown {
 			html.WithUnsafe(),
 		),
 	)
+}
+
+// unicodeHeadingIDTransformer generates heading IDs that preserve Unicode
+// letters and digits (e.g. Korean, CJK), matching GitHub's anchor format.
+type unicodeHeadingIDTransformer struct{}
+
+func (t *unicodeHeadingIDTransformer) Transform(doc *gast.Document, reader text.Reader, pc parser.Context) {
+	seen := map[string]int{}
+	source := reader.Source()
+
+	gast.Walk(doc, func(node gast.Node, entering bool) (gast.WalkStatus, error) {
+		if !entering {
+			return gast.WalkContinue, nil
+		}
+		heading, ok := node.(*gast.Heading)
+		if !ok {
+			return gast.WalkContinue, nil
+		}
+		raw := headingText(heading, source)
+		id := slugify(raw, seen)
+		heading.SetAttribute([]byte("id"), []byte(id))
+		return gast.WalkContinue, nil
+	})
+}
+
+// headingText extracts plain text content from a heading node.
+func headingText(heading *gast.Heading, source []byte) string {
+	var buf bytes.Buffer
+	gast.Walk(heading, func(n gast.Node, entering bool) (gast.WalkStatus, error) {
+		if !entering {
+			return gast.WalkContinue, nil
+		}
+		if t, ok := n.(*gast.Text); ok {
+			buf.Write(t.Segment.Value(source))
+			if t.SoftLineBreak() {
+				buf.WriteByte(' ')
+			}
+		}
+		return gast.WalkContinue, nil
+	})
+	return buf.String()
+}
+
+// slugify converts heading text to a URL-safe anchor ID, keeping Unicode
+// letters/digits and replacing spaces/hyphens with a single hyphen.
+func slugify(text string, seen map[string]int) string {
+	var b strings.Builder
+	for _, r := range text {
+		if r == ' ' || r == '-' {
+			b.WriteRune('-')
+		} else if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(unicode.ToLower(r))
+		}
+	}
+	id := strings.Trim(b.String(), "-")
+	if id == "" {
+		id = "heading"
+	}
+	// Deduplicate: first occurrence is bare id, next is id-1, id-2, …
+	if n, exists := seen[id]; exists {
+		seen[id]++
+		id = fmt.Sprintf("%s-%d", id, n+1)
+	} else {
+		seen[id] = 0
+	}
+	return id
 }
 
 // renderMarkdown converts markdown source bytes to an HTML fragment.

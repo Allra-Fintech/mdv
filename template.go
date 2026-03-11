@@ -169,7 +169,13 @@ img { max-width: 100%; height: auto; }
       .then(function (r) { return r.text(); })
       .then(function (html) {
         content.innerHTML = html;
-        window.scrollTo(0, scrollY);
+        var hash = window.location.hash;
+        if (hash) {
+          var target = document.querySelector(hash);
+          if (target) { target.scrollIntoView(); } else { window.scrollTo(0, scrollY); }
+        } else {
+          window.scrollTo(0, scrollY);
+        }
         showIndicator();
       })
       .catch(function (err) { console.error('mdview reload error:', err); });
