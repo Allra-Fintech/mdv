@@ -162,6 +162,14 @@ img { max-width: 100%; height: auto; }
     setTimeout(function () { indicator.classList.remove('show'); }, 1500);
   }
 
+  function stripCrossOrigin(root) {
+    root.querySelectorAll('video,audio,source,img,track').forEach(function (el) {
+      el.removeAttribute('crossorigin');
+    });
+  }
+
+  stripCrossOrigin(content);
+
   var es = new EventSource('/events');
   es.addEventListener('reload', function () {
     var scrollY = window.scrollY;
@@ -169,6 +177,7 @@ img { max-width: 100%; height: auto; }
       .then(function (r) { return r.text(); })
       .then(function (html) {
         content.innerHTML = html;
+        stripCrossOrigin(content);
         var hash = window.location.hash;
         if (hash) {
           var target = document.querySelector(hash);
