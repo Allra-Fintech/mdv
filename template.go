@@ -171,7 +171,7 @@ img { max-width: 100%; height: auto; }
 
   function applyHashOrScroll(hash, scrollY) {
     if (hash) {
-      var target = document.querySelector(hash);
+      var target = document.getElementById(decodeURIComponent(hash.slice(1)));
       if (target) {
         target.scrollIntoView();
         return;
@@ -212,7 +212,14 @@ img { max-width: 100%; height: auto; }
     if (!a) return;
     var url;
     try { url = new URL(a.href); } catch (_) { return; }
-    if (url.origin !== location.origin || !/\.md$/i.test(url.pathname)) return;
+    if (url.origin !== location.origin) return;
+    if (url.pathname === location.pathname && url.hash) {
+      e.preventDefault();
+      history.pushState({ path: currentPath }, '', currentPath + url.hash);
+      applyHashOrScroll(url.hash);
+      return;
+    }
+    if (!/\.md$/i.test(url.pathname)) return;
     e.preventDefault();
     loadPath(url.pathname, url.hash, { pushState: true })
       .catch(function (err) { console.error('mdview navigate error:', err); });
