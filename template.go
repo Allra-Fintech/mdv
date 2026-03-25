@@ -156,6 +156,7 @@ img { max-width: 100%; height: auto; }
 (function () {
   var indicator = document.getElementById('reload-indicator');
   var content   = document.getElementById('content');
+  var currentPath = '{{.Path}}';
 
   function showIndicator() {
     indicator.classList.add('show');
@@ -168,6 +169,42 @@ img { max-width: 100%; height: auto; }
     });
   }
 
+  function applyHashOrScroll(hash, scrollY) {
+    if (hash) {
+      var target = document.querySelector(hash);
+      if (target) {
+        target.scrollIntoView();
+        return;
+      }
+    }
+    if (typeof scrollY === 'number') {
+      window.scrollTo(0, scrollY);
+      return;
+    }
+    window.scrollTo(0, 0);
+  }
+
+  function loadPath(pathname, hash, options) {
+    var opts = options || {};
+    return fetch('/content?path=' + encodeURIComponent(pathname))
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.text();
+      })
+      .then(function (html) {
+        content.innerHTML = html;
+        stripCrossOrigin(content);
+        currentPath = pathname;
+        document.title = pathname.split('/').pop() || document.title;
+
+        if (opts.pushState) {
+          history.pushState({ path: pathname }, '', pathname + (hash || ''));
+        }
+
+        applyHashOrScroll(hash, opts.scrollY);
+      });
+  }
+
   stripCrossOrigin(content);
 
   document.addEventListener('click', function (e) {
@@ -177,26 +214,20 @@ img { max-width: 100%; height: auto; }
     try { url = new URL(a.href); } catch (_) { return; }
     if (url.origin !== location.origin || !/\.md$/i.test(url.pathname)) return;
     e.preventDefault();
-    fetch('/content?path=' + encodeURIComponent(url.pathname))
-      .then(function (r) { return r.text(); })
-      .then(function (html) { content.innerHTML = html; history.pushState(null, '', url.pathname + url.hash); });
+    loadPath(url.pathname, url.hash, { pushState: true })
+      .catch(function (err) { console.error('mdview navigate error:', err); });
   }, true);
+
+  window.addEventListener('popstate', function () {
+    loadPath(location.pathname, location.hash)
+      .catch(function (err) { console.error('mdview popstate error:', err); });
+  });
 
   var es = new EventSource('/events');
   es.addEventListener('reload', function () {
     var scrollY = window.scrollY;
-    fetch('/content?path=' + encodeURIComponent('{{.Path}}'))
-      .then(function (r) { return r.text(); })
-      .then(function (html) {
-        content.innerHTML = html;
-        stripCrossOrigin(content);
-        var hash = window.location.hash;
-        if (hash) {
-          var target = document.querySelector(hash);
-          if (target) { target.scrollIntoView(); } else { window.scrollTo(0, scrollY); }
-        } else {
-          window.scrollTo(0, scrollY);
-        }
+    loadPath(currentPath, window.location.hash, { scrollY: scrollY })
+      .then(function () {
         showIndicator();
       })
       .catch(function (err) { console.error('mdview reload error:', err); });
