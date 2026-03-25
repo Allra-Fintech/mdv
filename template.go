@@ -170,6 +170,18 @@ img { max-width: 100%; height: auto; }
 
   stripCrossOrigin(content);
 
+  document.addEventListener('click', function (e) {
+    var a = e.target.closest('a');
+    if (!a) return;
+    var url;
+    try { url = new URL(a.href); } catch (_) { return; }
+    if (url.origin !== location.origin || !/\.md$/i.test(url.pathname)) return;
+    e.preventDefault();
+    fetch('/content?path=' + encodeURIComponent(url.pathname))
+      .then(function (r) { return r.text(); })
+      .then(function (html) { content.innerHTML = html; history.pushState(null, '', url.pathname + url.hash); });
+  }, true);
+
   var es = new EventSource('/events');
   es.addEventListener('reload', function () {
     var scrollY = window.scrollY;
