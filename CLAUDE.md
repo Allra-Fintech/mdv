@@ -6,13 +6,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ```bash
 # Build binary in project directory
-make build          # or: go build -o mdv .
+make build          # or: go build -o mdv ./cmd/mdv
 
 # Install to ~/.local/bin (default)
 make install
 
 # Run
 ./mdv [--port 7777] [--theme github] [--no-browser] <file.md>
+
+# Format code
+make format         # or: go fmt ./...
+
+# Lint
+make lint           # or: go vet ./...
 
 # Tidy dependencies
 go mod tidy
