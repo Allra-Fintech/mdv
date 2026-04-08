@@ -46,12 +46,13 @@ func newMarkdown(theme string) goldmark.Markdown {
 	)
 }
 
-// mermaidKind is the AST node kind for mermaid diagram blocks.
-// Using a custom kind avoids conflicting with KindFencedCodeBlock,
-// which is owned by the Chroma highlighting renderer.
-var mermaidKind = gast.NewNodeKind("Mermaid")
+// mermaidKind is a custom AST node kind so the mermaid renderer never
+// conflicts with KindFencedCodeBlock, which is owned by Chroma.
+var (
+	mermaidKind = gast.NewNodeKind("Mermaid")
+	mermaidLang = []byte("mermaid")
+)
 
-// mermaidNode is an AST node that holds a mermaid diagram's raw source lines.
 type mermaidNode struct {
 	gast.BaseBlock
 }
@@ -61,7 +62,6 @@ func (n *mermaidNode) Dump(source []byte, level int) {
 	gast.DumpHelper(n, source, level, nil, nil)
 }
 
-// mermaidExtender wires the transformer (parser) and renderer together.
 type mermaidExtender struct{}
 
 func (e *mermaidExtender) Extend(m goldmark.Markdown) {
@@ -73,8 +73,6 @@ func (e *mermaidExtender) Extend(m goldmark.Markdown) {
 	))
 }
 
-// mermaidTransformer replaces fenced code blocks whose language is "mermaid"
-// with a mermaidNode so the Chroma renderer is never invoked for them.
 type mermaidTransformer struct{}
 
 func (t *mermaidTransformer) Transform(doc *gast.Document, reader text.Reader, pc parser.Context) {
@@ -86,7 +84,7 @@ func (t *mermaidTransformer) Transform(doc *gast.Document, reader text.Reader, p
 			return gast.WalkContinue, nil
 		}
 		fcb, ok := node.(*gast.FencedCodeBlock)
-		if ok && bytes.EqualFold(fcb.Language(source), []byte("mermaid")) {
+		if ok && bytes.EqualFold(fcb.Language(source), mermaidLang) {
 			targets = append(targets, fcb)
 		}
 		return gast.WalkContinue, nil
@@ -99,7 +97,6 @@ func (t *mermaidTransformer) Transform(doc *gast.Document, reader text.Reader, p
 	}
 }
 
-// mermaidRenderer renders mermaidNode as a <pre class="mermaid"> block.
 type mermaidRenderer struct{}
 
 func (r *mermaidRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
