@@ -10,6 +10,7 @@ A CLI tool that renders Markdown files in the browser with GitHub-style formatti
 
 - GitHub Flavored Markdown (GFM) — tables, strikethrough, autolinks, task lists
 - Server-side syntax highlighting via [Chroma](https://github.com/alecthomas/chroma) — no client-side JS
+- Mermaid diagrams from fenced `mermaid` blocks, rendered in-browser on demand
 - Live reload via SSE — browser updates without full page reload, scroll position preserved
 - Serves relative local assets from the Markdown directory (e.g. `![demo](./recording.gif)`)
 - Auto-increments port if the default is taken (up to 20 attempts)
@@ -64,7 +65,17 @@ mdv --port 8080 --theme monokai README.md
 
 # Print URL but don't open browser
 mdv --no-browser README.md
+
+# Render Mermaid diagrams in fenced mermaid blocks
+mdv diagrams.md
 ```
+
+Example Mermaid block:
+
+    ```mermaid
+    flowchart TD
+      Start --> Ship
+    ```
 
 ## HTTP Routes
 
@@ -81,10 +92,10 @@ mdv --no-browser README.md
 ```
 main.go       — CLI flag parsing, resolvePort, openBrowser, wiring
 server.go     — HTTP routes: GET /, GET /content, GET /events (SSE)
-renderer.go   — goldmark setup with GFM + Chroma highlighting
+renderer.go   — goldmark setup with GFM, Chroma highlighting, Mermaid block handling
 hub.go        — SSE broadcast hub (Register/Unregister/Broadcast)
 watcher.go    — fsnotify file watcher → hub.Broadcast()
-template.go   — Full HTML page template (inline CSS + SSE JS)
+template.go   — Full HTML page template (inline CSS + SSE JS, Mermaid loader)
 ```
 
 ## Chroma Themes

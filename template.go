@@ -130,6 +130,13 @@ hr {
 /* Images */
 img { max-width: 100%; height: auto; }
 
+/* Mermaid */
+pre.mermaid {
+  background: #f6f8fa;
+  text-align: center;
+  white-space: pre-wrap;
+}
+
 /* Reload indicator */
 #reload-indicator {
   position: fixed;
@@ -157,6 +164,7 @@ img { max-width: 100%; height: auto; }
   var indicator = document.getElementById('reload-indicator');
   var content   = document.getElementById('content');
   var currentPath = '{{.Path}}';
+  var mermaidLoader;
 
   function showIndicator() {
     indicator.classList.add('show');
@@ -184,6 +192,49 @@ img { max-width: 100%; height: auto; }
     window.scrollTo(0, 0);
   }
 
+  function loadMermaid() {
+    if (window.mermaid) {
+      return Promise.resolve(window.mermaid);
+    }
+    if (mermaidLoader) {
+      return mermaidLoader;
+    }
+
+    mermaidLoader = new Promise(function (resolve, reject) {
+      var script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
+      script.onload = function () {
+        window.mermaid.initialize({ startOnLoad: false, securityLevel: 'loose' });
+        resolve(window.mermaid);
+      };
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+
+    return mermaidLoader;
+  }
+
+  function renderMermaid(root) {
+    var nodes = Array.prototype.slice.call(root.querySelectorAll('pre.mermaid'));
+    if (!nodes.length) {
+      return Promise.resolve();
+    }
+
+    return loadMermaid()
+      .then(function (mermaid) {
+        nodes.forEach(function (node, index) {
+          node.removeAttribute('data-processed');
+          if (!node.id) {
+            node.id = 'mermaid-' + Date.now() + '-' + index;
+          }
+        });
+        return mermaid.run({ nodes: nodes });
+      })
+      .catch(function (err) {
+        console.error('mdview mermaid error:', err);
+      });
+  }
+
   function loadPath(pathname, hash, options) {
     var opts = options || {};
     return fetch('/content?path=' + encodeURIComponent(pathname))
@@ -201,11 +252,14 @@ img { max-width: 100%; height: auto; }
           history.pushState({ path: pathname }, '', pathname + (hash || ''));
         }
 
-        applyHashOrScroll(hash, opts.scrollY);
+        return renderMermaid(content).then(function () {
+          applyHashOrScroll(hash, opts.scrollY);
+        });
       });
   }
 
   stripCrossOrigin(content);
+  renderMermaid(content);
 
   document.addEventListener('click', function (e) {
     var a = e.target.closest('a');

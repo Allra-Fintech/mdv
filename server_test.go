@@ -60,6 +60,9 @@ func TestPageTemplateSupportsHistoryNavigation(t *testing.T) {
 	checks := []string{
 		"var currentPath = ",
 		"/index.md",
+		"function loadMermaid()",
+		"function renderMermaid(root)",
+		"renderMermaid(content).then(function () {",
 		"window.addEventListener('popstate'",
 		"loadPath(currentPath, window.location.hash, { scrollY: scrollY })",
 		"history.pushState({ path: pathname }, '', pathname + (hash || ''))",

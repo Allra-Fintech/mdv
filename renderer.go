@@ -12,6 +12,7 @@ import (
 	gast "github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer"
 	"github.com/yuin/goldmark/renderer/html"
 	"github.com/yuin/goldmark/text"
 	"github.com/yuin/goldmark/util"
@@ -23,6 +24,7 @@ func newMarkdown(theme string) goldmark.Markdown {
 	return goldmark.New(
 		goldmark.WithExtensions(
 			extension.GFM,
+			&mermaidExtender{},
 			highlighting.NewHighlighting(
 				highlighting.WithStyle(theme),
 				highlighting.WithFormatOptions(
@@ -42,6 +44,42 @@ func newMarkdown(theme string) goldmark.Markdown {
 			html.WithUnsafe(),
 		),
 	)
+}
+
+type mermaidExtender struct{}
+
+func (e *mermaidExtender) Extend(m goldmark.Markdown) {
+	m.Renderer().AddOptions(renderer.WithNodeRenderers(
+		util.Prioritized(&mermaidRenderer{}, 100),
+	))
+}
+
+type mermaidRenderer struct{}
+
+func (r *mermaidRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
+	reg.Register(gast.KindFencedCodeBlock, r.renderFencedCodeBlock)
+}
+
+func (r *mermaidRenderer) renderFencedCodeBlock(
+	w util.BufWriter, source []byte, node gast.Node, entering bool,
+) (gast.WalkStatus, error) {
+	n := node.(*gast.FencedCodeBlock)
+	if !bytes.EqualFold(n.Language(source), []byte("mermaid")) {
+		return gast.WalkContinue, nil
+	}
+
+	if entering {
+		_, _ = w.WriteString(`<pre class="mermaid">`)
+		lines := n.Lines()
+		for i := 0; i < lines.Len(); i++ {
+			line := lines.At(i)
+			_, _ = w.Write(util.EscapeHTML((&line).Value(source)))
+		}
+		_, _ = w.WriteString(`</pre>`)
+	} else {
+		_ = w.WriteByte('\n')
+	}
+	return gast.WalkSkipChildren, nil
 }
 
 // unicodeHeadingIDTransformer generates heading IDs that preserve Unicode
