@@ -1,7 +1,7 @@
 BIN     := mdv
 PREFIX  ?= $(HOME)/.local
 
-.PHONY: build install uninstall clean format lint
+.PHONY: build install uninstall clean format lint test test-unit test-integration
 
 build:
 	go build -o $(BIN) ./cmd/mdv
@@ -14,6 +14,14 @@ uninstall:
 
 clean:
 	rm -f $(BIN)
+
+test-unit:
+	go test ./...
+
+test-integration:
+	go test -tags integration ./...
+
+test: test-unit test-integration
 
 format:
 	go fmt ./...
