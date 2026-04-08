@@ -46,39 +46,81 @@ func newMarkdown(theme string) goldmark.Markdown {
 	)
 }
 
+// mermaidKind is the AST node kind for mermaid diagram blocks.
+// Using a custom kind avoids conflicting with KindFencedCodeBlock,
+// which is owned by the Chroma highlighting renderer.
+var mermaidKind = gast.NewNodeKind("Mermaid")
+
+// mermaidNode is an AST node that holds a mermaid diagram's raw source lines.
+type mermaidNode struct {
+	gast.BaseBlock
+}
+
+func (n *mermaidNode) Kind() gast.NodeKind { return mermaidKind }
+func (n *mermaidNode) Dump(source []byte, level int) {
+	gast.DumpHelper(n, source, level, nil, nil)
+}
+
+// mermaidExtender wires the transformer (parser) and renderer together.
 type mermaidExtender struct{}
 
 func (e *mermaidExtender) Extend(m goldmark.Markdown) {
+	m.Parser().AddOptions(parser.WithASTTransformers(
+		util.Prioritized(&mermaidTransformer{}, 50),
+	))
 	m.Renderer().AddOptions(renderer.WithNodeRenderers(
 		util.Prioritized(&mermaidRenderer{}, 100),
 	))
 }
 
+// mermaidTransformer replaces fenced code blocks whose language is "mermaid"
+// with a mermaidNode so the Chroma renderer is never invoked for them.
+type mermaidTransformer struct{}
+
+func (t *mermaidTransformer) Transform(doc *gast.Document, reader text.Reader, pc parser.Context) {
+	source := reader.Source()
+	var targets []*gast.FencedCodeBlock
+
+	gast.Walk(doc, func(node gast.Node, entering bool) (gast.WalkStatus, error) {
+		if !entering {
+			return gast.WalkContinue, nil
+		}
+		fcb, ok := node.(*gast.FencedCodeBlock)
+		if ok && bytes.EqualFold(fcb.Language(source), []byte("mermaid")) {
+			targets = append(targets, fcb)
+		}
+		return gast.WalkContinue, nil
+	})
+
+	for _, fcb := range targets {
+		mn := &mermaidNode{}
+		mn.SetLines(fcb.Lines())
+		fcb.Parent().ReplaceChild(fcb.Parent(), fcb, mn)
+	}
+}
+
+// mermaidRenderer renders mermaidNode as a <pre class="mermaid"> block.
 type mermaidRenderer struct{}
 
 func (r *mermaidRenderer) RegisterFuncs(reg renderer.NodeRendererFuncRegisterer) {
-	reg.Register(gast.KindFencedCodeBlock, r.renderFencedCodeBlock)
+	reg.Register(mermaidKind, r.renderMermaidNode)
 }
 
-func (r *mermaidRenderer) renderFencedCodeBlock(
+func (r *mermaidRenderer) renderMermaidNode(
 	w util.BufWriter, source []byte, node gast.Node, entering bool,
 ) (gast.WalkStatus, error) {
-	n := node.(*gast.FencedCodeBlock)
-	if !bytes.EqualFold(n.Language(source), []byte("mermaid")) {
-		return gast.WalkContinue, nil
-	}
-
-	if entering {
-		_, _ = w.WriteString(`<pre class="mermaid">`)
-		lines := n.Lines()
-		for i := 0; i < lines.Len(); i++ {
-			line := lines.At(i)
-			_, _ = w.Write(util.EscapeHTML((&line).Value(source)))
-		}
-		_, _ = w.WriteString(`</pre>`)
-	} else {
+	if !entering {
 		_ = w.WriteByte('\n')
+		return gast.WalkSkipChildren, nil
 	}
+	n := node.(*mermaidNode)
+	_, _ = w.WriteString(`<pre class="mermaid">`)
+	lines := n.Lines()
+	for i := 0; i < lines.Len(); i++ {
+		line := lines.At(i)
+		_, _ = w.Write(util.EscapeHTML(line.Value(source)))
+	}
+	_, _ = w.WriteString(`</pre>`)
 	return gast.WalkSkipChildren, nil
 }
 
