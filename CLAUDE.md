@@ -5,59 +5,58 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-# Build binary in project directory
-make build          # or: go build -o mdv ./cmd/mdv
+# Build
+make build                          # produces ./mdv
+go build -o mdv ./cmd/mdv           # equivalent
 
-# Install to ~/.local/bin (default)
-make install
+# Test
+make test-unit                      # go test ./...
+make test-integration               # go test -tags integration ./...
+make test                           # both
 
-# Run
-./mdv [--port 7777] [--theme github] [--no-browser] <file.md>
+# Run a single test
+go test ./internal/mdv/ -run TestLiveReloadOnFileChange
+go test -tags integration ./internal/mdv/ -run TestLiveReloadOnFileChange
 
-# Run unit tests
-make test-unit      # or: go test ./...
+# Format / lint
+make format                         # go fmt ./...
+make lint                           # go vet ./...
 
-# Run integration tests (live reload, PDF, routing)
-make test-integration  # or: go test -tags integration ./...
-
-# Run all tests
-make test
-
-# Format code
-make format         # or: go fmt ./...
-
-# Lint
-make lint           # or: go vet ./...
-
-# Tidy dependencies
+# Tidy deps
 go mod tidy
 ```
 
 ## Architecture
 
-Code is split into `cmd/mdv/` (entry point) and `internal/mdv/` (core logic). The data flow is:
+```
+cmd/mdv/main.go       — flag parsing, resolvePort, openBrowser, server wiring
+internal/mdv/
+  hub.go              — SSE broadcast hub
+  watcher.go          — fsnotify file watcher
+  server.go           — HTTP routes and handlers
+  renderer.go         — goldmark Markdown→HTML pipeline
+  template.go         — full page HTML template (CSS + JS inline)
+  pdf.go              — headless Chrome PDF export
+```
+
+Live reload data flow:
 
 ```
-fsnotify event → watchFile() → hub.Broadcast()
-                                    ↓
-                         SSE clients (/events) receive "reload"
-                                    ↓
-                    Browser fetches /content → swaps #content innerHTML
+fsnotify event → WatchFile() → Hub.Broadcast()
+                                     ↓
+                        SSE clients (/events) receive "event: reload"
+                                     ↓
+                   Browser fetches /content → swaps #content innerHTML
 ```
 
-**`cmd/mdv/main.go`** — Entry point. Parses flags, calls `resolvePort` (tries up to 20 consecutive ports), starts `WatchFile` in a goroutine, wires up `NewServer`, and optionally opens the browser after a 200ms delay.
+**Key design points worth knowing before changing things:**
 
-**`internal/mdv/hub.go`** — Thread-safe SSE broadcast hub. Clients register a `chan struct{}` and receive a non-blocking signal on every `Broadcast()` call.
+- **Watcher watches both the file and its parent directory.** Atomic-write editors (Vim, JetBrains) replace the inode on save, so watching the file alone misses events. Only `Write`/`Create` events whose path matches the target file trigger a broadcast.
 
-**`internal/mdv/watcher.go`** — Uses fsnotify to watch both the target file and its parent directory. Watching the directory is necessary for atomic-write editors (Vim, JetBrains) that replace the inode on save. Only `Write` and `Create` events matching the exact file path trigger a broadcast.
+- **`/content` returns an HTML fragment; `GET /<file>.md` returns a full page.** The SSE JS calls `/content?path=` for partial refresh (preserving scroll), while direct navigation renders through `pageTemplate`.
 
-**`internal/mdv/server.go`** — Registers three routes on `http.ServeMux`:
-- `GET /` — renders file, executes `pageTemplate`
-- `GET /content` — renders file, returns bare HTML fragment
-- `GET /events` — SSE stream; registers a hub channel, streams `event: reload` messages
+- **`newMarkdown` is stateless and created per request.** goldmark isn't safe for concurrent use so a fresh instance is built each time.
 
-**`internal/mdv/renderer.go`** — Builds a goldmark instance with GFM extensions (tables, strikethrough, autolinks, task lists) and Chroma server-side syntax highlighting. A new instance is created per request (stateless).
+- **Integration tests are behind the `integration` build tag.** Add `//go:build integration` at the top of any new integration test file. Unit tests (`go test ./...`) skip them; CI runs both suites separately.
 
-**`internal/mdv/template.go`** — Single `pageTemplate` embedding GitHub-style CSS and the SSE client JS inline. The JS fetches `/content` on reload events and preserves scroll position.
-
-**`internal/mdv/pdf.go`** — Headless Chrome PDF export via `--print-to-pdf`.
+- **Mermaid rendering is client-side only.** The server emits `<pre class="mermaid">` blocks; the browser lazily loads `mermaid.min.js` from CDN on first encounter.
