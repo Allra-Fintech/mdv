@@ -1,7 +1,7 @@
 BIN     := mdv
 PREFIX  ?= $(HOME)/.local
 
-.PHONY: build install uninstall clean
+.PHONY: build install uninstall clean format lint
 
 build:
 	go build -o $(BIN) ./cmd/mdv
@@ -14,3 +14,9 @@ uninstall:
 
 clean:
 	rm -f $(BIN)
+
+format:
+	go fmt ./...
+
+lint:
+	go vet ./...
