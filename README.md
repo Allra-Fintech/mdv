@@ -40,6 +40,11 @@ make install        # installs to ~/.local/bin (default) as mdv
 | `make install` | Build and install to `$PREFIX/bin` (default: `~/.local/bin`) |
 | `make uninstall` | Remove installed binary |
 | `make clean` | Remove local `./mdv` binary |
+| `make test-unit` | Run unit tests |
+| `make test-integration` | Run integration tests (live reload, routing, PDF) |
+| `make test` | Run all tests |
+| `make format` | Format code with `go fmt` |
+| `make lint` | Lint with `go vet` |
 
 ## Usage
 
@@ -95,13 +100,23 @@ Example Mermaid block:
 ## Architecture
 
 ```
-main.go       — CLI flag parsing, resolvePort, openBrowser, wiring
-server.go     — HTTP routes: GET /, GET /content, GET /events (SSE)
-renderer.go   — goldmark setup with GFM, Chroma highlighting, Mermaid block handling
-hub.go        — SSE broadcast hub (Register/Unregister/Broadcast)
-watcher.go    — fsnotify file watcher → hub.Broadcast()
-template.go   — Full HTML page template (inline CSS + SSE JS, Mermaid loader)
-pdf.go        — Headless Chrome PDF export (findChrome, printToPDF, waitForServer)
+cmd/mdv/main.go            — CLI flag parsing, resolvePort, openBrowser, wiring
+internal/mdv/server.go     — HTTP routes: GET /, GET /content, GET /events (SSE)
+internal/mdv/renderer.go   — goldmark setup with GFM, Chroma highlighting, Mermaid block handling
+internal/mdv/hub.go        — SSE broadcast hub (Register/Unregister/Broadcast)
+internal/mdv/watcher.go    — fsnotify file watcher → hub.Broadcast()
+internal/mdv/template.go   — Full HTML page template (inline CSS + SSE JS, Mermaid loader)
+internal/mdv/pdf.go        — Headless Chrome PDF export (findChrome, PrintToPDF, WaitForServer)
+```
+
+Data flow:
+
+```
+fsnotify event → WatchFile() → hub.Broadcast()
+                                    ↓
+                         SSE clients (/events) receive "reload"
+                                    ↓
+                    Browser fetches /content → swaps #content innerHTML
 ```
 
 ## Chroma Themes
