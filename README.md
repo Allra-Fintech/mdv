@@ -12,6 +12,7 @@ A CLI tool that renders Markdown files in the browser with GitHub-style formatti
 - Server-side syntax highlighting via [Chroma](https://github.com/alecthomas/chroma) — no client-side JS
 - Mermaid diagrams from fenced `mermaid` blocks, rendered in-browser on demand
 - Live reload via SSE — browser updates without full page reload, scroll position preserved
+- PDF export — `--pdf output.pdf` flag (headless Chrome) or "Export PDF" button in the browser
 - Serves relative local assets from the Markdown directory (e.g. `![demo](./recording.gif)`)
 - Auto-increments port if the default is taken (up to 20 attempts)
 - Binds to `127.0.0.1` only — no LAN exposure
@@ -53,6 +54,7 @@ mdv [flags] <file.md>
 | `--port` | int | `7777` | HTTP port (auto-increments if taken) |
 | `--no-browser` | bool | `false` | Don't open browser automatically |
 | `--theme` | string | `"github"` | Chroma highlight theme |
+| `--pdf` | string | `""` | Export to PDF file and exit (requires Chrome or Chromium) |
 
 ### Examples
 
@@ -65,6 +67,9 @@ mdv --port 8080 --theme monokai README.md
 
 # Print URL but don't open browser
 mdv --no-browser README.md
+
+# Export to PDF (requires Chrome or Chromium)
+mdv --pdf output.pdf README.md
 
 # Render Mermaid diagrams in fenced mermaid blocks
 mdv diagrams.md
@@ -96,6 +101,7 @@ renderer.go   — goldmark setup with GFM, Chroma highlighting, Mermaid block ha
 hub.go        — SSE broadcast hub (Register/Unregister/Broadcast)
 watcher.go    — fsnotify file watcher → hub.Broadcast()
 template.go   — Full HTML page template (inline CSS + SSE JS, Mermaid loader)
+pdf.go        — Headless Chrome PDF export (findChrome, printToPDF, waitForServer)
 ```
 
 ## Chroma Themes

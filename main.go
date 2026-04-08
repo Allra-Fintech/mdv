@@ -17,6 +17,7 @@ func main() {
 	port := flag.Int("port", 7777, "HTTP port (auto-increments if taken)")
 	noBrowser := flag.Bool("no-browser", false, "Don't open browser automatically")
 	theme := flag.String("theme", "github", "Chroma highlight theme")
+	pdf := flag.String("pdf", "", "Export to PDF file and exit (requires Chrome or Chromium)")
 	flag.Parse()
 
 	if flag.NArg() != 1 {
@@ -44,6 +45,25 @@ func main() {
 
 	addr := fmt.Sprintf("127.0.0.1:%d", actualPort)
 	url := fmt.Sprintf("http://%s/%s", addr, filepath.Base(filePath))
+
+	if *pdf != "" {
+		// PDF mode: start a temporary server, print to PDF, then exit.
+		srv := &http.Server{Addr: addr, Handler: mux}
+		go func() {
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("server: %v", err)
+			}
+		}()
+		waitForServer(addr)
+		log.Printf("generating PDF from %s", url)
+		if err := printToPDF(url, *pdf); err != nil {
+			fmt.Fprintf(os.Stderr, "error: %v\n", err)
+			os.Exit(1)
+		}
+		log.Printf("PDF saved to %s", *pdf)
+		os.Exit(0)
+	}
+
 	log.Printf("serving %s at %s", filePath, url)
 
 	if !*noBrowser {

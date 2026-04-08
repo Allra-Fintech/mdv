@@ -27,7 +27,7 @@ body {
 #wrapper {
   max-width: 800px;
   margin: 0 auto;
-  padding: 32px 24px 64px;
+  padding: 32px 48px 64px;
 }
 
 /* Headings */
@@ -152,9 +152,53 @@ pre.mermaid {
   pointer-events: none;
 }
 #reload-indicator.show { opacity: 1; }
+
+/* Export PDF button */
+#pdf-btn {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  background: #0969da;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  z-index: 100;
+}
+#pdf-btn:hover { background: #0550ae; }
+
+/* Print styles */
+@page { margin: 0; }
+
+@media print {
+  #pdf-btn,
+  #reload-indicator { display: none !important; }
+
+  body {
+    background: #fff;
+    color: #000;
+    padding: 16mm 20mm;
+  }
+
+  #wrapper {
+    max-width: none;
+    padding: 0;
+    margin: 0;
+  }
+
+  a { color: inherit; text-decoration: none; }
+
+  pre { white-space: pre-wrap; }
+
+  h1, h2, h3, h4, h5, h6,
+  pre, blockquote, table { page-break-inside: avoid; }
+}
 </style>
 </head>
 <body>
+<button id="pdf-btn" onclick="window.print()">Export PDF</button>
 <div id="wrapper">
   <div id="content">{{.Content}}</div>
 </div>
