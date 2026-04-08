@@ -1,4 +1,4 @@
-package main
+package mdv
 
 import (
 	"html/template"
@@ -11,7 +11,7 @@ import (
 
 func TestContentRouteRendersSiblingMarkdownFile(t *testing.T) {
 	filePath := filepath.Join("testdata", "navigation", "index.md")
-	mux := newServer(filePath, "github", newHub())
+	mux := NewServer(filePath, "github", NewHub())
 
 	req := httptest.NewRequest(http.MethodGet, "/content?path=%2Fother.md", nil)
 	rec := httptest.NewRecorder()
@@ -27,7 +27,7 @@ func TestContentRouteRendersSiblingMarkdownFile(t *testing.T) {
 
 func TestMarkdownRouteRendersSiblingMarkdownPage(t *testing.T) {
 	filePath := filepath.Join("testdata", "navigation", "index.md")
-	mux := newServer(filePath, "github", newHub())
+	mux := NewServer(filePath, "github", NewHub())
 
 	req := httptest.NewRequest(http.MethodGet, "/other.md", nil)
 	rec := httptest.NewRecorder()

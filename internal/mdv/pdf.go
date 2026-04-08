@@ -1,4 +1,4 @@
-package main
+package mdv
 
 import (
 	"fmt"
@@ -32,8 +32,8 @@ func findChrome() string {
 	return ""
 }
 
-// waitForServer polls addr until the TCP port accepts connections or 5 s passes.
-func waitForServer(addr string) {
+// WaitForServer polls addr until the TCP port accepts connections or 5 s passes.
+func WaitForServer(addr string) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		conn, err := net.DialTimeout("tcp", addr, 100*time.Millisecond)
@@ -45,8 +45,8 @@ func waitForServer(addr string) {
 	}
 }
 
-// printToPDF uses headless Chrome to render pageURL and save a PDF to output.
-func printToPDF(pageURL, output string) error {
+// PrintToPDF uses headless Chrome to render pageURL and save a PDF to output.
+func PrintToPDF(pageURL, output string) error {
 	chrome := findChrome()
 	if chrome == "" {
 		return fmt.Errorf("Chrome or Chromium not found; install Chrome or use browser File → Print → Save as PDF")

@@ -1,4 +1,4 @@
-package main
+package mdv
 
 import "sync"
 
@@ -8,7 +8,7 @@ type Hub struct {
 	clients map[chan struct{}]struct{}
 }
 
-func newHub() *Hub {
+func NewHub() *Hub {
 	return &Hub{
 		clients: make(map[chan struct{}]struct{}),
 	}

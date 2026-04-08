@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"time"
+
+	"github.com/Allra-Fintech/mdv/internal/mdv"
 )
 
 func main() {
@@ -38,10 +40,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	hub := newHub()
-	go watchFile(filePath, hub)
+	hub := mdv.NewHub()
+	go mdv.WatchFile(filePath, hub)
 
-	mux := newServer(filePath, *theme, hub)
+	mux := mdv.NewServer(filePath, *theme, hub)
 
 	addr := fmt.Sprintf("127.0.0.1:%d", actualPort)
 	url := fmt.Sprintf("http://%s/%s", addr, filepath.Base(filePath))
@@ -54,9 +56,9 @@ func main() {
 				log.Fatalf("server: %v", err)
 			}
 		}()
-		waitForServer(addr)
+		mdv.WaitForServer(addr)
 		log.Printf("generating PDF from %s", url)
-		if err := printToPDF(url, *pdf); err != nil {
+		if err := mdv.PrintToPDF(url, *pdf); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -67,7 +69,6 @@ func main() {
 	log.Printf("serving %s at %s", filePath, url)
 
 	if !*noBrowser {
-		// Give the server a moment to start before opening the browser
 		go func() {
 			time.Sleep(200 * time.Millisecond)
 			openBrowser(url)
@@ -84,7 +85,6 @@ func main() {
 }
 
 // resolvePort tries up to 20 consecutive ports starting from start.
-// It returns the first available port or an error.
 func resolvePort(start int) (int, error) {
 	for p := start; p < start+20; p++ {
 		ln, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", p))

@@ -1,4 +1,4 @@
-package main
+package mdv
 
 import (
 	"log"
@@ -7,11 +7,11 @@ import (
 	"github.com/fsnotify/fsnotify"
 )
 
-// watchFile starts an fsnotify watcher on both the file and its parent directory.
+// WatchFile starts an fsnotify watcher on both the file and its parent directory.
 // This handles atomic-write editors (Vim, JetBrains) that replace the file inode.
 // Any Write or Create event for the watched file triggers hub.Broadcast().
 // The function blocks until the watcher is closed; run it in a goroutine.
-func watchFile(path string, hub *Hub) {
+func WatchFile(path string, hub *Hub) {
 	absPath, err := filepath.Abs(path)
 	if err != nil {
 		log.Printf("watcher: cannot resolve path %q: %v", path, err)

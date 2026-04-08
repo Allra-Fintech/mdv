@@ -1,4 +1,4 @@
-package main
+package mdv
 
 import (
 	"fmt"
@@ -9,17 +9,8 @@ import (
 	"path/filepath"
 )
 
-type server struct {
-	filePath string
-	md       interface {
-		Convert(source []byte, writer interface{ Write([]byte) (int, error) }) error
-	}
-	hub *Hub
-}
-
-// newServer builds the HTTP mux with all routes registered.
-func newServer(filePath string, theme string, hub *Hub) *http.ServeMux {
-	md := newMarkdown(theme)
+// NewServer builds the HTTP mux with all routes registered.
+func NewServer(filePath string, theme string, hub *Hub) *http.ServeMux {
 	baseDir := filepath.Dir(filePath)
 
 	mux := http.NewServeMux()
@@ -102,7 +93,6 @@ func newServer(filePath string, theme string, hub *Hub) *http.ServeMux {
 		http.FileServer(http.Dir(baseDir)).ServeHTTP(w, r)
 	})
 
-	_ = md // md is used via renderFile closure below; suppress unused warning
 	return mux
 }
 
