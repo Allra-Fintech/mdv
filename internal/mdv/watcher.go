@@ -9,7 +9,7 @@ import (
 
 // WatchFile starts an fsnotify watcher on both the file and its parent directory.
 // This handles atomic-write editors (Vim, JetBrains) that replace the file inode.
-// Any Write or Create event for the watched file triggers hub.Broadcast().
+// Any Write/Create/Rename/Remove event for the watched file triggers hub.Broadcast().
 // The function blocks until the watcher is closed; run it in a goroutine.
 func WatchFile(path string, hub *Hub) {
 	absPath, err := filepath.Abs(path)
@@ -26,9 +26,6 @@ func WatchFile(path string, hub *Hub) {
 	}
 	defer watcher.Close()
 
-	if err := watcher.Add(absPath); err != nil {
-		log.Printf("watcher: cannot watch file %q: %v", absPath, err)
-	}
 	if err := watcher.Add(dir); err != nil {
 		log.Printf("watcher: cannot watch dir %q: %v", dir, err)
 	}
@@ -39,10 +36,11 @@ func WatchFile(path string, hub *Hub) {
 			if !ok {
 				return
 			}
-			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) {
-				if filepath.Ext(event.Name) == ".md" || event.Name == absPath {
-					hub.Broadcast()
-				}
+			if event.Name != absPath {
+				continue
+			}
+			if event.Has(fsnotify.Write) || event.Has(fsnotify.Create) || event.Has(fsnotify.Rename) || event.Has(fsnotify.Remove) {
+				hub.Broadcast()
 			}
 		case err, ok := <-watcher.Errors:
 			if !ok {

@@ -13,6 +13,34 @@ import (
 	"time"
 )
 
+func waitForReloadEvent(t *testing.T, body *bufio.Scanner) <-chan struct{} {
+	t.Helper()
+
+	reloadCh := make(chan struct{}, 1)
+	go func() {
+		for body.Scan() {
+			if body.Text() == "event: reload" {
+				reloadCh <- struct{}{}
+				return
+			}
+		}
+	}()
+	return reloadCh
+}
+
+func openEventsStream(t *testing.T, url string) (*http.Response, <-chan struct{}) {
+	t.Helper()
+
+	resp, err := http.Get(url + "/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	reloadCh := waitForReloadEvent(t, bufio.NewScanner(resp.Body))
+	time.Sleep(50 * time.Millisecond) // let SSE connection establish
+	return resp, reloadCh
+}
+
 // TestLiveReloadOnFileChange verifies that modifying the watched file triggers
 // an SSE "event: reload" on the /events stream.
 func TestLiveReloadOnFileChange(t *testing.T) {
@@ -30,24 +58,8 @@ func TestLiveReloadOnFileChange(t *testing.T) {
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
-	resp, err := http.Get(srv.URL + "/events")
-	if err != nil {
-		t.Fatal(err)
-	}
+	resp, reloadCh := openEventsStream(t, srv.URL)
 	defer resp.Body.Close()
-
-	reloadCh := make(chan struct{}, 1)
-	go func() {
-		scanner := bufio.NewScanner(resp.Body)
-		for scanner.Scan() {
-			if scanner.Text() == "event: reload" {
-				reloadCh <- struct{}{}
-				return
-			}
-		}
-	}()
-
-	time.Sleep(50 * time.Millisecond) // let SSE connection establish
 
 	if err := os.WriteFile(filePath, []byte("# Updated"), 0644); err != nil {
 		t.Fatal(err)
@@ -58,6 +70,42 @@ func TestLiveReloadOnFileChange(t *testing.T) {
 		// success
 	case <-time.After(3 * time.Second):
 		t.Fatal("timeout: no reload event received after file change")
+	}
+}
+
+// TestLiveReloadOnAtomicReplace verifies that replacing the watched file via
+// rename still triggers a reload, which matches how many editors save files.
+func TestLiveReloadOnAtomicReplace(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "test.md")
+	if err := os.WriteFile(filePath, []byte("# Hello"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	hub := NewHub()
+	go WatchFile(filePath, hub)
+	time.Sleep(50 * time.Millisecond) // let watcher initialize
+
+	mux := NewServer(filePath, "github", hub)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	resp, reloadCh := openEventsStream(t, srv.URL)
+	defer resp.Body.Close()
+
+	tmpPath := filepath.Join(tmpDir, "test.md.tmp")
+	if err := os.WriteFile(tmpPath, []byte("# Updated"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmpPath, filePath); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case <-reloadCh:
+		// success
+	case <-time.After(3 * time.Second):
+		t.Fatal("timeout: no reload event received after atomic file replace")
 	}
 }
 
