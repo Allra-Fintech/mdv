@@ -60,6 +60,7 @@ mdv [flags] <file.md>
 | `--no-browser` | bool | `false` | Don't open browser automatically |
 | `--theme` | string | `"github"` | Chroma highlight theme |
 | `--pdf` | string | `""` | Export to PDF file and exit (requires Chrome or Chromium) |
+| `--version` | bool | `false` | Print version and exit |
 
 ### Examples
 
@@ -124,3 +125,18 @@ fsnotify event → WatchFile() → hub.Broadcast()
 Common themes: `github`, `github-dark`, `monokai`, `dracula`, `solarized-dark`, `vs`, `xcode`.
 
 Full list: https://xyproto.github.io/splash/docs/
+
+## Why not grip or glow?
+
+| | mdv | grip | glow |
+|---|---|---|---|
+| Rendering | Local (goldmark) | GitHub API | Local |
+| Live reload | Yes — partial, scroll-preserving | No | No |
+| Syntax highlighting | Server-side (Chroma) | GitHub API | Terminal colors |
+| Mermaid diagrams | Yes | Depends on GitHub | No |
+| PDF export | Yes (headless Chrome) | No | No |
+| Output | Browser | Browser | Terminal |
+| Offline | Yes | No (needs API) | Yes |
+| Rate limits | None | GitHub API limits | None |
+
+**grip** sends your Markdown to the GitHub API for rendering — requires a token for heavy use and doesn't work offline. **glow** renders in the terminal, which is great for quick reads but loses fidelity for complex tables, images, and diagrams. **mdv** renders locally in your browser with GitHub-style CSS, live reload as you edit, and zero external API calls.

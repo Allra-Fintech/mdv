@@ -15,12 +15,20 @@ import (
 	"github.com/Allra-Fintech/mdv/internal/mdv"
 )
 
+var version = "dev"
+
 func main() {
 	port := flag.Int("port", 7777, "HTTP port (auto-increments if taken)")
 	noBrowser := flag.Bool("no-browser", false, "Don't open browser automatically")
 	theme := flag.String("theme", "github", "Chroma highlight theme")
 	pdf := flag.String("pdf", "", "Export to PDF file and exit (requires Chrome or Chromium)")
+	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
+
+	if *showVersion {
+		fmt.Println(version)
+		os.Exit(0)
+	}
 
 	if flag.NArg() != 1 {
 		fmt.Fprintf(os.Stderr, "usage: mdview [flags] <file.md>\n")
