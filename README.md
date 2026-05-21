@@ -23,6 +23,16 @@ A CLI tool that renders Markdown files in the browser with GitHub-style formatti
 go install github.com/Allra-Fintech/mdv@latest
 ```
 
+Or via Homebrew:
+
+```bash
+brew tap Allra-Fintech/tap
+brew install Allra-Fintech/tap/mdv
+```
+
+> **Note:** There is an unrelated Python tool also named `mdv` in homebrew-core.
+> Use the fully-qualified name `Allra-Fintech/tap/mdv` to install this one.
+
 Or build from source:
 
 ```bash
