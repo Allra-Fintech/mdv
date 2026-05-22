@@ -26,6 +26,8 @@ go install github.com/Allra-Fintech/mdv@latest
 brew tap Allra-Fintech/tap && brew install mdv
 ```
 
+Demo: https://raw.githubusercontent.com/Allra-Fintech/mdv/main/screen.gif
+
 Repo: https://github.com/Allra-Fintech/mdv
 
 vs the alternatives: grip sends your files to GitHub's API (needs a token, doesn't work offline). glow renders in the terminal. mdv renders in your browser, locally.

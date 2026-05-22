@@ -12,6 +12,8 @@ The interesting bits from a Go perspective:
 - goldmark isn't safe for concurrent use, so a fresh instance is created per request instead of sharing a global one.
 - Syntax highlighting via Chroma happens server-side, so there's zero client-side JS for that.
 
+Demo: https://raw.githubusercontent.com/Allra-Fintech/mdv/main/screen.gif
+
 Repo: https://github.com/Allra-Fintech/mdv
 
 Install: `go install github.com/Allra-Fintech/mdv@latest`
