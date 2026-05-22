@@ -1,6 +1,6 @@
 # r/golang post
 
-**Title:** mdv – a Markdown viewer with live reload I built in Go
+**Title:** mdv – a Markdown viewer with live reload ~~I~~ (Claude) built in Go
 
 **Body:**
 
