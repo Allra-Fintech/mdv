@@ -1,6 +1,6 @@
 # r/commandline post
 
-**Title:** mdv – ~~I~~ (Claude) built a CLI to open Markdown files in your browser with live reload, syntax highlighting, and Mermaid diagrams
+**Title:** mdv – open a Markdown file in your browser with live reload, syntax highlighting, and Mermaid diagrams
 
 **Body:**
 
