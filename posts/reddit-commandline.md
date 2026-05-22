@@ -29,3 +29,5 @@ brew tap Allra-Fintech/tap && brew install mdv
 Repo: https://github.com/Allra-Fintech/mdv
 
 vs the alternatives: grip sends your files to GitHub's API (needs a token, doesn't work offline). glow renders in the terminal. mdv renders in your browser, locally.
+
+To be honest, it's not a complex tool — but I use it every day. Writing docs, editing READMEs, reviewing Markdown before committing. It just quietly stays open and updates as I type.

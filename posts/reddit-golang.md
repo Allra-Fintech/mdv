@@ -16,4 +16,6 @@ Repo: https://github.com/Allra-Fintech/mdv
 
 Install: `go install github.com/Allra-Fintech/mdv@latest`
 
+To be honest, it's a pretty simple build — but it's also something I genuinely use every day. Writing docs, reviewing PRs, editing READMEs. Having it just stay open and update as I type is one of those small things that turns out to matter a lot.
+
 Feedback welcome — especially if you know a better pattern for the atomic-save watcher issue.
