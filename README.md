@@ -13,6 +13,7 @@ A CLI tool that renders Markdown files in the browser with GitHub-style formatti
 - Mermaid diagrams from fenced `mermaid` blocks, rendered in-browser on demand
 - Live reload via SSE — browser updates without full page reload, scroll position preserved
 - PDF export — `--pdf output.pdf` flag (headless Chrome) or "Export PDF" button in the browser
+- HTML export — `--html output.html` flag saves the fully rendered, self-contained page
 - Serves relative local assets from the Markdown directory (e.g. `![demo](./recording.gif)`)
 - Auto-increments port if the default is taken (up to 20 attempts)
 - Binds to `127.0.0.1` only — no LAN exposure
@@ -51,7 +52,7 @@ make install        # installs to ~/.local/bin (default) as mdv
 | `make uninstall` | Remove installed binary |
 | `make clean` | Remove local `./mdv` binary |
 | `make test-unit` | Run unit tests |
-| `make test-integration` | Run integration tests (live reload, routing, PDF) |
+| `make test-integration` | Run integration tests (live reload, routing, PDF/HTML export) |
 | `make test` | Run all tests |
 | `make format` | Format code with `go fmt` |
 | `make lint` | Lint with `go vet` |
@@ -70,6 +71,7 @@ mdv [flags] <file.md>
 | `--no-browser` | bool | `false` | Don't open browser automatically |
 | `--theme` | string | `"github"` | Chroma highlight theme |
 | `--pdf` | string | `""` | Export to PDF file and exit (requires Chrome or Chromium) |
+| `--html` | string | `""` | Export to HTML file and exit |
 | `--version` | bool | `false` | Print version and exit |
 
 ### Examples
@@ -86,6 +88,9 @@ mdv --no-browser README.md
 
 # Export to PDF (requires Chrome or Chromium)
 mdv --pdf output.pdf README.md
+
+# Export to HTML
+mdv --html output.html README.md
 
 # Render Mermaid diagrams in fenced mermaid blocks
 mdv diagrams.md
@@ -118,6 +123,7 @@ internal/mdv/hub.go        — SSE broadcast hub (Register/Unregister/Broadcast)
 internal/mdv/watcher.go    — fsnotify file watcher → hub.Broadcast()
 internal/mdv/template.go   — Full HTML page template (inline CSS + SSE JS, Mermaid loader)
 internal/mdv/pdf.go        — Headless Chrome PDF export (findChrome, PrintToPDF, WaitForServer)
+internal/mdv/html.go       — HTML export (ExportHTML)
 ```
 
 Data flow:
@@ -145,6 +151,7 @@ Full list: https://xyproto.github.io/splash/docs/
 | Syntax highlighting | Server-side (Chroma) | GitHub API | Terminal colors |
 | Mermaid diagrams | Yes | Depends on GitHub | No |
 | PDF export | Yes (headless Chrome) | No | No |
+| HTML export | Yes | No | No |
 | Output | Browser | Browser | Terminal |
 | Offline | Yes | No (needs API) | Yes |
 | Rate limits | None | GitHub API limits | None |

@@ -22,6 +22,7 @@ func main() {
 	noBrowser := flag.Bool("no-browser", false, "Don't open browser automatically")
 	theme := flag.String("theme", "github", "Chroma highlight theme")
 	pdf := flag.String("pdf", "", "Export to PDF file and exit (requires Chrome or Chromium)")
+	html := flag.String("html", "", "Export to HTML file and exit")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -56,8 +57,8 @@ func main() {
 	addr := fmt.Sprintf("127.0.0.1:%d", actualPort)
 	url := fmt.Sprintf("http://%s/%s", addr, filepath.Base(filePath))
 
-	if *pdf != "" {
-		// PDF mode: start a temporary server, print to PDF, then exit.
+	if *pdf != "" || *html != "" {
+		// Export mode: start a temporary server, export, then exit.
 		srv := &http.Server{Addr: addr, Handler: mux}
 		go func() {
 			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
@@ -65,12 +66,25 @@ func main() {
 			}
 		}()
 		mdv.WaitForServer(addr)
-		log.Printf("generating PDF from %s", url)
-		if err := mdv.PrintToPDF(url, *pdf); err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			os.Exit(1)
+
+		if *pdf != "" {
+			log.Printf("generating PDF from %s", url)
+			if err := mdv.PrintToPDF(url, *pdf); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			log.Printf("PDF saved to %s", *pdf)
 		}
-		log.Printf("PDF saved to %s", *pdf)
+
+		if *html != "" {
+			log.Printf("generating HTML from %s", url)
+			if err := mdv.ExportHTML(url, *html); err != nil {
+				fmt.Fprintf(os.Stderr, "error: %v\n", err)
+				os.Exit(1)
+			}
+			log.Printf("HTML saved to %s", *html)
+		}
+
 		os.Exit(0)
 	}
 

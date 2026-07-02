@@ -201,3 +201,32 @@ func TestPDFExport(t *testing.T) {
 		t.Fatal("PDF file is empty")
 	}
 }
+
+// TestHTMLExport verifies HTML export produces a self-contained rendered page.
+func TestHTMLExport(t *testing.T) {
+	tmpDir := t.TempDir()
+	filePath := filepath.Join(tmpDir, "doc.md")
+	if err := os.WriteFile(filePath, []byte("# HTML Test\n\nHello world."), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	hub := NewHub()
+	mux := NewServer(filePath, "github", hub)
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	outPath := filepath.Join(tmpDir, "out.html")
+	pageURL := srv.URL + "/doc.md"
+
+	if err := ExportHTML(pageURL, outPath); err != nil {
+		t.Fatalf("ExportHTML: %v", err)
+	}
+
+	body, err := os.ReadFile(outPath)
+	if err != nil {
+		t.Fatalf("HTML file not created: %v", err)
+	}
+	if !strings.Contains(string(body), "HTML Test") {
+		t.Fatalf("HTML file missing rendered content: %s", body)
+	}
+}
