@@ -1,0 +1,19 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  bump-homebrew-formula:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: mislav/bump-homebrew-formula-action@v4
+        with:
+          formula-name: mdv
+          homebrew-tap: Allra-Fintech/homebrew-tap
+          commit-message: |
+            Update {{formulaName}} to {{version}}
+        env:
+          COMMITTER_TOKEN: ${{ secrets.ALLRA_GITHUB_TOKEN }}
