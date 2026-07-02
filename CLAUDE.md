@@ -37,6 +37,7 @@ internal/mdv/
   renderer.go         — goldmark Markdown→HTML pipeline
   template.go         — full page HTML template (CSS + JS inline)
   pdf.go              — headless Chrome PDF export
+  html.go             — HTML export (fetches the rendered page, no Chrome needed)
 ```
 
 Live reload data flow:
@@ -60,3 +61,18 @@ fsnotify event → WatchFile() → Hub.Broadcast()
 - **Integration tests are behind the `integration` build tag.** Add `//go:build integration` at the top of any new integration test file. Unit tests (`go test ./...`) skip them; CI runs both suites separately.
 
 - **Mermaid rendering is client-side only.** The server emits `<pre class="mermaid">` blocks; the browser lazily loads `mermaid.min.js` from CDN on first encounter.
+
+## Release process
+
+`main.version` is set at build time via `-ldflags -X main.version=...` (see `Makefile`); there's no version constant in source.
+
+To cut a release:
+
+```bash
+git tag vX.Y.Z
+git push origin vX.Y.Z
+```
+
+Pushing a `v*` tag triggers `.github/workflows/release.yml`, which runs `mislav/bump-homebrew-formula-action` to update the `mdv` formula in the sibling `Allra-Fintech/homebrew-tap` repo (`Formula/mdv.rb`) — it recomputes the `url`/`sha256` from the new tag's source tarball and pushes directly (no manual PR needed). This requires the `ALLRA_GITHUB_TOKEN` org secret to have write access to `homebrew-tap`, which is not guaranteed for public repos by default — if the workflow fails on auth, check that secret's repo visibility first.
+
+There is no separate GitHub Release step or changelog; the tag alone drives both `go install github.com/Allra-Fintech/mdv@vX.Y.Z` and the Homebrew formula bump.
