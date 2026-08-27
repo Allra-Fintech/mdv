@@ -18,7 +18,9 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          # Not go-version-file: go.mod (1.22) — that toolchain's linker omits
+          # LC_UUID, which current macOS runners' dyld rejects at exec time.
+          go-version: stable
           cache: true
 
       - name: Verify dependencies
