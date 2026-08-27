@@ -16,4 +16,8 @@ jobs:
           commit-message: |
             Update {{formulaName}} to {{version}}
         env:
-          COMMITTER_TOKEN: ${{ secrets.ALLRA_GITHUB_TOKEN }}
+          # A fine-grained PAT scoped to contents:write on homebrew-tap only.
+          # The built-in GITHUB_TOKEN cannot reach another repo, and the org's
+          # ALLRA_GITHUB_TOKEN is visible to private repos only, so it arrives
+          # empty here.
+          COMMITTER_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
