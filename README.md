@@ -31,8 +31,17 @@ brew tap Allra-Fintech/tap
 brew install Allra-Fintech/tap/mdv
 ```
 
+Upgrade with the same fully-qualified name:
+
+```bash
+brew upgrade Allra-Fintech/tap/mdv
+```
+
 > **Note:** There is an unrelated Python tool also named `mdv` in homebrew-core.
-> Use the fully-qualified name `Allra-Fintech/tap/mdv` to install this one.
+> Always use the fully-qualified name `Allra-Fintech/tap/mdv`, for `upgrade` as
+> well as `install`. The bare name resolves to homebrew-core's formula, so
+> `brew upgrade mdv` silently replaces this tool with that one instead of
+> reporting an error.
 
 Or build from source:
 
