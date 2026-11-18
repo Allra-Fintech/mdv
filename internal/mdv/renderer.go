@@ -19,8 +19,14 @@ import (
 )
 
 // newMarkdown returns a goldmark instance configured with GFM extensions
-// and Chroma server-side syntax highlighting for the given theme.
-func newMarkdown(theme string) goldmark.Markdown {
+// and Chroma server-side syntax highlighting for the given theme. Raw HTML in
+// the source is passed through only when allowRawHTML is set; otherwise it is
+// replaced with an "omitted" comment.
+func newMarkdown(theme string, allowRawHTML bool) goldmark.Markdown {
+	rendererOpts := []renderer.Option{html.WithHardWraps(), html.WithXHTML()}
+	if allowRawHTML {
+		rendererOpts = append(rendererOpts, html.WithUnsafe())
+	}
 	return goldmark.New(
 		goldmark.WithExtensions(
 			extension.GFM,
@@ -38,11 +44,7 @@ func newMarkdown(theme string) goldmark.Markdown {
 				util.Prioritized(&unicodeHeadingIDTransformer{}, 100),
 			),
 		),
-		goldmark.WithRendererOptions(
-			html.WithHardWraps(),
-			html.WithXHTML(),
-			html.WithUnsafe(),
-		),
+		goldmark.WithRendererOptions(rendererOpts...),
 	)
 }
 

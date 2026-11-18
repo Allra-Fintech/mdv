@@ -329,14 +329,24 @@ pre.mermaid {
   });
 
   var es = new EventSource('/events');
-  es.addEventListener('reload', function () {
+  // A reload event is sent once per change, so a failed fetch is retried
+  // with backoff instead of leaving stale content until the next change.
+  var reloadRetry = null;
+  function reload(attempt) {
+    clearTimeout(reloadRetry);
     var scrollY = window.scrollY;
     loadPath(currentPath, window.location.hash, { scrollY: scrollY })
       .then(function () {
         showIndicator();
       })
-      .catch(function (err) { console.error('mdview reload error:', err); });
-  });
+      .catch(function (err) {
+        console.error('mdview reload error:', err);
+        if (attempt < 5) {
+          reloadRetry = setTimeout(function () { reload(attempt + 1); }, 1000 * Math.pow(2, attempt));
+        }
+      });
+  }
+  es.addEventListener('reload', function () { reload(0); });
 
   es.onerror = function () {
     // Connection lost — silently retry (EventSource auto-reconnects)

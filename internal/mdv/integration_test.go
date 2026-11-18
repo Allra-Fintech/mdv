@@ -4,6 +4,7 @@ package mdv
 
 import (
 	"bufio"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -232,8 +233,8 @@ func TestHTMLExport(t *testing.T) {
 	}
 }
 
-// TestLiveReloadOnRemoteChange verifies that WatchURL broadcasts a reload when
-// the polled remote document's body changes.
+// TestLiveReloadOnRemoteChange verifies that WatchRemote broadcasts a reload
+// when the polled remote document's body differs from the initial one.
 func TestLiveReloadOnRemoteChange(t *testing.T) {
 	var mu sync.Mutex
 	body := "# v1"
@@ -244,23 +245,33 @@ func TestLiveReloadOnRemoteChange(t *testing.T) {
 	}))
 	defer remote.Close()
 
-	hub := NewHub()
-	go WatchURL(remote.URL+"/doc.md", 20*time.Millisecond, hub)
-
 	src, err := NewRemoteSource(remote.URL + "/doc.md")
 	if err != nil {
 		t.Fatal(err)
 	}
+	hub := NewHub()
 	srv := httptest.NewServer(NewSourceServer(src, "github", hub))
 	defer srv.Close()
 
 	resp, reloadCh := openEventsStream(t, srv.URL)
 	defer resp.Body.Close()
-	time.Sleep(60 * time.Millisecond) // let the watcher record v1
 
+	// The baseline is the body already shown, so no polling race exists:
+	// the first successful poll after the change must broadcast.
 	mu.Lock()
 	body = "# v2"
 	mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		WatchRemote(ctx, src, []byte("# v1"), 20*time.Millisecond, hub)
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
 
 	select {
 	case <-reloadCh:

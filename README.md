@@ -15,7 +15,7 @@ A CLI tool that renders Markdown files in the browser with GitHub-style formatti
 - PDF export — `--pdf output.pdf` flag (headless Chrome) or "Export PDF" button in the browser
 - HTML export — `--html output.html` flag saves the fully rendered, self-contained page
 - Serves relative local assets from the Markdown directory (e.g. `![demo](./recording.gif)`)
-- Remote documents — pass an `http(s)://` URL instead of a file; relative links and images are proxied from the same remote directory, and live reload polls for changes (`--poll`)
+- Remote documents — pass an `http(s)://` URL instead of a file; relative links and images are proxied from the same remote directory, and live reload polls for changes (`--poll`). Remote content is treated as untrusted: raw HTML in the Markdown is not rendered, proxied assets are sandboxed, and requests to loopback/private addresses are refused unless the document itself is hosted on one. `HTTP(S)_PROXY` is not used for remote fetches.
 - Auto-increments port if the default is taken (up to 20 attempts)
 - Binds to `127.0.0.1` only — no LAN exposure
 
@@ -135,7 +135,7 @@ Example Mermaid block:
 ```
 cmd/mdv/main.go            — CLI flag parsing, resolvePort, openBrowser, wiring
 internal/mdv/server.go     — HTTP routes: GET /, GET /content, GET /events (SSE)
-internal/mdv/source.go     — Document sources: local file or remote http(s) URL; WatchURL poller
+internal/mdv/source.go     — Document sources: local file or remote http(s) URL; WatchRemote poller
 internal/mdv/renderer.go   — goldmark setup with GFM, Chroma highlighting, Mermaid block handling
 internal/mdv/hub.go        — SSE broadcast hub (Register/Unregister/Broadcast)
 internal/mdv/watcher.go    — fsnotify file watcher → hub.Broadcast()

@@ -6,7 +6,7 @@ import (
 )
 
 func TestRenderMarkdownRendersMermaidBlocks(t *testing.T) {
-	md := newMarkdown("github")
+	md := newMarkdown("github", true)
 	source := []byte("```mermaid\ngraph TD\nA[Hello] --> B[World]\n```\n")
 
 	rendered, err := renderMarkdown(md, source)
@@ -24,7 +24,7 @@ func TestRenderMarkdownRendersMermaidBlocks(t *testing.T) {
 }
 
 func TestRenderMarkdownEscapesMermaidHTML(t *testing.T) {
-	md := newMarkdown("github")
+	md := newMarkdown("github", true)
 	source := []byte("```mermaid\ngraph TD\nA[<b>unsafe</b>]\n```\n")
 
 	rendered, err := renderMarkdown(md, source)

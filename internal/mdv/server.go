@@ -5,6 +5,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"net/url"
 	"path"
 )
 
@@ -19,16 +20,17 @@ func NewSourceServer(src Source, theme string, hub *Hub) *http.ServeMux {
 	mux := http.NewServeMux()
 
 	mainPath := src.MainPath()
+	mainURL := (&url.URL{Path: mainPath}).EscapedPath()
 
 	// GET / — redirect to /filename.md
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, mainPath, http.StatusFound)
+		http.Redirect(w, r, mainURL, http.StatusFound)
 	})
 
 	// GET /content — HTML fragment for SSE-triggered partial refresh.
 	// Accepts optional ?path=/other.md to render a different file.
 	mux.HandleFunc("GET /content", func(w http.ResponseWriter, r *http.Request) {
-		content, err := renderSource(src, r.URL.Query().Get("path"), theme)
+		content, err := renderSource(r, src, r.URL.Query().Get("path"), theme)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("render error: %v", err), http.StatusInternalServerError)
 			return
@@ -74,7 +76,7 @@ func NewSourceServer(src Source, theme string, hub *Hub) *http.ServeMux {
 	// serve other files as assets.
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == mainPath || path.Ext(r.URL.Path) == ".md" {
-			content, err := renderSource(src, r.URL.Path, theme)
+			content, err := renderSource(r, src, r.URL.Path, theme)
 			if err != nil {
 				http.Error(w, fmt.Sprintf("render error: %v", err), http.StatusInternalServerError)
 				return
@@ -97,11 +99,11 @@ func NewSourceServer(src Source, theme string, hub *Hub) *http.ServeMux {
 
 // renderSource reads the markdown at urlPath from src and returns the rendered
 // HTML fragment. An empty urlPath means the main document.
-func renderSource(src Source, urlPath, theme string) ([]byte, error) {
-	source, err := src.ReadMarkdown(urlPath)
+func renderSource(r *http.Request, src Source, urlPath, theme string) ([]byte, error) {
+	source, err := src.ReadMarkdown(r.Context(), urlPath)
 	if err != nil {
 		return nil, err
 	}
-	md := newMarkdown(theme)
+	md := newMarkdown(theme, src.AllowRawHTML())
 	return renderMarkdown(md, source)
 }

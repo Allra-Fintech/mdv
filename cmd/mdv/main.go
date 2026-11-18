@@ -1,11 +1,13 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"os/exec"
 	"runtime"
@@ -41,13 +43,14 @@ func main() {
 	hub := mdv.NewHub()
 
 	var src mdv.Source
+	var initial []byte
 	if mdv.IsRemote(target) {
 		s, err := mdv.NewRemoteSource(target)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
-		if _, err := s.ReadMarkdown(""); err != nil {
+		if initial, err = s.ReadMarkdown(context.Background(), ""); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -69,7 +72,7 @@ func main() {
 	mux := mdv.NewSourceServer(src, *theme, hub)
 
 	addr := fmt.Sprintf("127.0.0.1:%d", actualPort)
-	url := fmt.Sprintf("http://%s%s", addr, src.MainPath())
+	url := fmt.Sprintf("http://%s%s", addr, (&neturl.URL{Path: src.MainPath()}).EscapedPath())
 
 	if *pdf != "" || *html != "" {
 		// Export mode: start a temporary server, export, then exit.
@@ -104,13 +107,17 @@ func main() {
 
 	if mdv.IsRemote(target) {
 		if *poll > 0 {
-			go mdv.WatchURL(target, *poll, hub)
+			go mdv.WatchRemote(context.Background(), src, initial, *poll, hub)
 		}
 	} else {
 		go mdv.WatchFile(target, hub)
 	}
 
-	log.Printf("serving %s at %s", target, url)
+	shown := target
+	if mdv.IsRemote(target) {
+		shown = mdv.RedactURL(target)
+	}
+	log.Printf("serving %s at %s", shown, url)
 
 	if !*noBrowser {
 		go func() {

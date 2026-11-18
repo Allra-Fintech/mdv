@@ -3,6 +3,7 @@ package mdv
 import (
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,7 +47,18 @@ func WaitForServer(addr string) {
 }
 
 // PrintToPDF uses headless Chrome to render pageURL and save a PDF to output.
+// The page is fetched first so an error response fails the export instead of
+// being printed as if it were the document.
 func PrintToPDF(pageURL, output string) error {
+	resp, err := http.Get(pageURL)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("unexpected status fetching %s: %s", pageURL, resp.Status)
+	}
+
 	chrome := findChrome()
 	if chrome == "" {
 		return fmt.Errorf("Chrome or Chromium not found; install Chrome or use browser File → Print → Save as PDF")

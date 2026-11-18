@@ -1,17 +1,21 @@
 package mdv
 
 import (
+	"context"
 	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 )
 
@@ -23,10 +27,12 @@ const maxRemoteMarkdownSize = 10 << 20 // 10 MiB
 type Source interface {
 	// MainPath is the server URL path of the main document, e.g. "/README.md".
 	MainPath() string
-	// ReadMarkdown returns the raw Markdown for urlPath.
-	ReadMarkdown(urlPath string) ([]byte, error)
+	// ReadMarkdown returns the raw Markdown for urlPath ("" means the main document).
+	ReadMarkdown(ctx context.Context, urlPath string) ([]byte, error)
 	// ServeAsset serves a non-Markdown file (image, etc.) for r.URL.Path.
 	ServeAsset(w http.ResponseWriter, r *http.Request)
+	// AllowRawHTML reports whether raw HTML in the Markdown may be rendered as-is.
+	AllowRawHTML() bool
 }
 
 // IsRemote reports whether arg is an http(s) URL rather than a local path.
@@ -36,6 +42,38 @@ func IsRemote(arg string) bool {
 		return false
 	}
 	return (u.Scheme == "http" || u.Scheme == "https") && u.Host != ""
+}
+
+// RedactURL returns rawURL without userinfo, query or fragment, for logs and
+// error messages. Unparseable input is replaced entirely.
+func RedactURL(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return "<invalid url>"
+	}
+	return redact(u)
+}
+
+func redact(u *url.URL) string {
+	c := *u
+	c.User = nil
+	c.RawQuery = ""
+	c.ForceQuery = false
+	c.Fragment = ""
+	c.RawFragment = ""
+	return c.String()
+}
+
+// mainPathFor builds the server path for the main document named name,
+// avoiding the server's own /content and /events routes.
+func mainPathFor(name string) string {
+	switch name {
+	case "", "/", ".":
+		name = "index.md"
+	case "content", "events":
+		name += ".md"
+	}
+	return "/" + name
 }
 
 // localSource serves a Markdown file and its sibling files from disk.
@@ -49,9 +87,10 @@ func NewLocalSource(filePath string) Source {
 	return &localSource{filePath: filePath, baseDir: filepath.Dir(filePath)}
 }
 
-func (s *localSource) MainPath() string { return "/" + filepath.Base(s.filePath) }
+func (s *localSource) MainPath() string   { return mainPathFor(filepath.Base(s.filePath)) }
+func (s *localSource) AllowRawHTML() bool { return true }
 
-func (s *localSource) ReadMarkdown(urlPath string) ([]byte, error) {
+func (s *localSource) ReadMarkdown(_ context.Context, urlPath string) ([]byte, error) {
 	target := s.filePath
 	if urlPath != "" && urlPath != s.MainPath() {
 		target = filepath.Join(s.baseDir, filepath.FromSlash(urlPath))
@@ -66,63 +105,100 @@ func (s *localSource) ServeAsset(w http.ResponseWriter, r *http.Request) {
 // remoteSource serves a Markdown document fetched over HTTP(S). Relative links
 // and assets are resolved against the document's directory URL and proxied
 // through the local server, so the browser never leaves 127.0.0.1.
+//
+// Remote content is untrusted: raw HTML in the Markdown is not rendered,
+// proxied assets are served with a sandbox CSP, and connections to loopback,
+// private and link-local addresses are refused (including via redirects)
+// unless the document itself lives on such an address.
 type remoteSource struct {
 	doc      *url.URL // exact URL of the main document (query preserved)
-	base     *url.URL // directory URL that relative paths resolve against
 	mainPath string
 	client   *http.Client
+
+	mu   sync.RWMutex
+	base *url.URL // directory URL that relative paths resolve against
 }
 
 // NewRemoteSource returns a Source backed by an http(s) Markdown URL.
 func NewRemoteSource(rawURL string) (Source, error) {
+	if !IsRemote(rawURL) {
+		return nil, fmt.Errorf("not an http(s) URL: %s", RedactURL(rawURL))
+	}
 	doc, err := url.Parse(rawURL)
 	if err != nil {
 		return nil, err
 	}
-	if !IsRemote(rawURL) {
-		return nil, fmt.Errorf("not an http(s) URL: %s", rawURL)
-	}
 	doc.Fragment = ""
 
 	name := path.Base(doc.Path)
-	if name == "/" || name == "." || strings.HasSuffix(doc.Path, "/") {
-		name = "index.md"
+	if strings.HasSuffix(doc.Path, "/") {
+		name = ""
 	}
-	base := doc.ResolveReference(&url.URL{Path: "./"})
+
+	dialer := &net.Dialer{
+		Timeout: 10 * time.Second,
+		Control: addressGuard(hostIsPrivate(doc.Hostname())),
+	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.Proxy = nil // the guard must see the real destination
+	transport.DialContext = dialer.DialContext
 
 	return &remoteSource{
 		doc:      doc,
-		base:     base,
-		mainPath: "/" + name,
-		client:   &http.Client{Timeout: 30 * time.Second},
+		base:     dirURL(doc),
+		mainPath: mainPathFor(name),
+		client:   &http.Client{Timeout: 30 * time.Second, Transport: transport},
 	}, nil
 }
 
-func (s *remoteSource) MainPath() string { return s.mainPath }
+func dirURL(u *url.URL) *url.URL {
+	d := u.ResolveReference(&url.URL{Path: "./"})
+	d.RawQuery = ""
+	return d
+}
+
+func (s *remoteSource) MainPath() string   { return s.mainPath }
+func (s *remoteSource) AllowRawHTML() bool { return false }
 
 // resolve maps a server URL path to the remote URL. The path is cleaned as an
 // absolute path first, so "/../x" cannot climb above the document directory.
-func (s *remoteSource) resolve(urlPath string) string {
+func (s *remoteSource) resolve(urlPath string) *url.URL {
 	if urlPath == "" || urlPath == s.mainPath {
-		return s.doc.String()
+		return s.doc
 	}
 	rel := strings.TrimPrefix(path.Clean("/"+urlPath), "/")
-	return s.base.ResolveReference(&url.URL{Path: rel}).String()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.base.ResolveReference(&url.URL{Path: rel})
 }
 
-func (s *remoteSource) ReadMarkdown(urlPath string) ([]byte, error) {
-	return fetchRemote(s.client, s.resolve(urlPath))
+func (s *remoteSource) ReadMarkdown(ctx context.Context, urlPath string) ([]byte, error) {
+	target := s.resolve(urlPath)
+	body, final, err := fetchRemote(ctx, s.client, target)
+	if err != nil {
+		return nil, err
+	}
+	if target == s.doc {
+		// After redirects, relative links resolve against where the document
+		// actually lives.
+		s.mu.Lock()
+		s.base = dirURL(final)
+		s.mu.Unlock()
+	}
+	return body, nil
 }
 
 func (s *remoteSource) ServeAsset(w http.ResponseWriter, r *http.Request) {
-	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, s.resolve(r.URL.Path), nil)
+	target := *s.resolve(r.URL.Path)
+	target.RawQuery = r.URL.RawQuery
+	req, err := http.NewRequestWithContext(r.Context(), http.MethodGet, target.String(), nil)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, "bad asset path", http.StatusBadRequest)
 		return
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("fetch error: %v", err), http.StatusBadGateway)
+		http.Error(w, fmt.Sprintf("fetch error: %v", redactErr(err)), http.StatusBadGateway)
 		return
 	}
 	defer resp.Body.Close()
@@ -132,44 +208,114 @@ func (s *remoteSource) ServeAsset(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set(h, v)
 		}
 	}
+	// Remote assets are untrusted: a proxied HTML/SVG page must not run
+	// script in the viewer's origin.
+	w.Header().Set("Content-Security-Policy", "sandbox")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(resp.StatusCode)
 	io.Copy(w, resp.Body)
 }
 
-// fetchRemote GETs rawURL and returns the body, failing on non-2xx statuses
-// and on bodies larger than maxRemoteMarkdownSize.
-func fetchRemote(client *http.Client, rawURL string) ([]byte, error) {
-	resp, err := client.Get(rawURL)
+// fetchRemote GETs u and returns the body and the final URL after redirects.
+// It fails on non-2xx statuses and bodies larger than maxRemoteMarkdownSize.
+// Errors never contain the URL's userinfo or query.
+func fetchRemote(ctx context.Context, client *http.Client, u *url.URL) ([]byte, *url.URL, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, fmt.Errorf("GET %s: invalid request", redact(u))
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, nil, redactErr(err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("GET %s: %s", rawURL, resp.Status)
+		return nil, nil, fmt.Errorf("GET %s: %s", redact(u), resp.Status)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxRemoteMarkdownSize+1))
 	if err != nil {
-		return nil, err
+		return nil, nil, redactErr(err)
 	}
 	if len(body) > maxRemoteMarkdownSize {
-		return nil, errors.New("remote document exceeds 10 MiB limit")
+		return nil, nil, errors.New("remote document exceeds 10 MiB limit")
 	}
-	return body, nil
+	return body, resp.Request.URL, nil
 }
 
-// WatchURL polls rawURL every interval and calls hub.Broadcast() when the
-// body changes. It blocks forever; run it in a goroutine.
-func WatchURL(rawURL string, interval time.Duration, hub *Hub) {
-	client := &http.Client{Timeout: 30 * time.Second}
-	var last [sha256.Size]byte
-	var haveLast, failing bool
+// redactErr strips userinfo and query from the URL inside a *url.Error.
+func redactErr(err error) error {
+	var ue *url.Error
+	if errors.As(err, &ue) {
+		c := *ue
+		c.URL = RedactURL(ue.URL)
+		return &c
+	}
+	return err
+}
+
+// hostIsPrivate reports whether host is (or resolves only to) a loopback,
+// private, link-local or unspecified address. Lookup failures count as public.
+func hostIsPrivate(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil || len(ips) == 0 {
+		return false
+	}
+	for _, ip := range ips {
+		if !isPrivateIP(ip) {
+			return false
+		}
+	}
+	return true
+}
+
+func isPrivateIP(ip net.IP) bool {
+	return ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() ||
+		ip.IsLinkLocalMulticast() || ip.IsUnspecified()
+}
+
+// addressGuard returns a net.Dialer Control func that refuses non-public
+// destinations unless allowPrivate is set. It runs on the resolved IP, so it
+// covers redirects and DNS rebinding alike.
+func addressGuard(allowPrivate bool) func(network, address string, c syscall.RawConn) error {
+	return func(network, address string, _ syscall.RawConn) error {
+		if allowPrivate {
+			return nil
+		}
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			return err
+		}
+		if ip := net.ParseIP(host); ip == nil || isPrivateIP(ip) {
+			return fmt.Errorf("refusing to connect to non-public address %s", host)
+		}
+		return nil
+	}
+}
+
+// WatchRemote polls src's main document every interval and calls
+// hub.Broadcast() when its body differs from the last one seen, starting from
+// initial (the body already shown to the user). It returns when ctx is done.
+func WatchRemote(ctx context.Context, src Source, initial []byte, interval time.Duration, hub *Hub) {
+	last := sha256.Sum256(initial)
+	failing := false
 
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	for ; ; <-ticker.C {
-		body, err := fetchRemote(client, rawURL)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		body, err := src.ReadMarkdown(ctx, "")
 		if err != nil {
+			if ctx.Err() != nil {
+				return
+			}
 			if !failing {
 				log.Printf("watcher: %v", err)
 				failing = true
@@ -177,13 +323,12 @@ func WatchURL(rawURL string, interval time.Duration, hub *Hub) {
 			continue
 		}
 		if failing {
-			log.Printf("watcher: %s reachable again", rawURL)
+			log.Printf("watcher: remote document reachable again")
 			failing = false
 		}
-		sum := sha256.Sum256(body)
-		if haveLast && sum != last {
+		if sum := sha256.Sum256(body); sum != last {
+			last = sum
 			hub.Broadcast()
 		}
-		last, haveLast = sum, true
 	}
 }
