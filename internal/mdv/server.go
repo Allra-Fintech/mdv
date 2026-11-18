@@ -5,17 +5,20 @@ import (
 	"html/template"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
+	"path"
 )
 
-// NewServer builds the HTTP mux with all routes registered.
+// NewServer builds the HTTP mux for a local Markdown file.
 func NewServer(filePath string, theme string, hub *Hub) *http.ServeMux {
-	baseDir := filepath.Dir(filePath)
+	return NewSourceServer(NewLocalSource(filePath), theme, hub)
+}
 
+// NewSourceServer builds the HTTP mux with all routes registered, reading
+// documents and assets from src.
+func NewSourceServer(src Source, theme string, hub *Hub) *http.ServeMux {
 	mux := http.NewServeMux()
 
-	mainPath := "/" + filepath.Base(filePath)
+	mainPath := src.MainPath()
 
 	// GET / — redirect to /filename.md
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -25,11 +28,7 @@ func NewServer(filePath string, theme string, hub *Hub) *http.ServeMux {
 	// GET /content — HTML fragment for SSE-triggered partial refresh.
 	// Accepts optional ?path=/other.md to render a different file.
 	mux.HandleFunc("GET /content", func(w http.ResponseWriter, r *http.Request) {
-		target := filePath
-		if p := r.URL.Query().Get("path"); p != "" {
-			target = filepath.Join(baseDir, filepath.FromSlash(p))
-		}
-		content, err := renderFile(target, theme)
+		content, err := renderSource(src, r.URL.Query().Get("path"), theme)
 		if err != nil {
 			http.Error(w, fmt.Sprintf("render error: %v", err), http.StatusInternalServerError)
 			return
@@ -71,18 +70,18 @@ func NewServer(filePath string, theme string, hub *Hub) *http.ServeMux {
 		}
 	})
 
-	// GET /<path> — render .md files as HTML pages; serve other files statically.
+	// GET /<path> — render .md files (and the main document) as HTML pages;
+	// serve other files as assets.
 	mux.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		if filepath.Ext(r.URL.Path) == ".md" {
-			absPath := filepath.Join(baseDir, filepath.FromSlash(r.URL.Path))
-			content, err := renderFile(absPath, theme)
+		if r.URL.Path == mainPath || path.Ext(r.URL.Path) == ".md" {
+			content, err := renderSource(src, r.URL.Path, theme)
 			if err != nil {
 				http.Error(w, fmt.Sprintf("render error: %v", err), http.StatusInternalServerError)
 				return
 			}
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if err := pageTemplate.Execute(w, pageData{
-				Title:   filepath.Base(absPath),
+				Title:   path.Base(r.URL.Path),
 				Path:    r.URL.Path,
 				Content: template.HTML(content),
 			}); err != nil {
@@ -90,15 +89,16 @@ func NewServer(filePath string, theme string, hub *Hub) *http.ServeMux {
 			}
 			return
 		}
-		http.FileServer(http.Dir(baseDir)).ServeHTTP(w, r)
+		src.ServeAsset(w, r)
 	})
 
 	return mux
 }
 
-// renderFile reads the markdown file and returns the rendered HTML fragment.
-func renderFile(filePath, theme string) ([]byte, error) {
-	source, err := os.ReadFile(filePath)
+// renderSource reads the markdown at urlPath from src and returns the rendered
+// HTML fragment. An empty urlPath means the main document.
+func renderSource(src Source, urlPath, theme string) ([]byte, error) {
+	source, err := src.ReadMarkdown(urlPath)
 	if err != nil {
 		return nil, err
 	}

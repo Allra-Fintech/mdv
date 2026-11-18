@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -228,5 +229,42 @@ func TestHTMLExport(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "HTML Test") {
 		t.Fatalf("HTML file missing rendered content: %s", body)
+	}
+}
+
+// TestLiveReloadOnRemoteChange verifies that WatchURL broadcasts a reload when
+// the polled remote document's body changes.
+func TestLiveReloadOnRemoteChange(t *testing.T) {
+	var mu sync.Mutex
+	body := "# v1"
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Write([]byte(body))
+	}))
+	defer remote.Close()
+
+	hub := NewHub()
+	go WatchURL(remote.URL+"/doc.md", 20*time.Millisecond, hub)
+
+	src, err := NewRemoteSource(remote.URL + "/doc.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(NewSourceServer(src, "github", hub))
+	defer srv.Close()
+
+	resp, reloadCh := openEventsStream(t, srv.URL)
+	defer resp.Body.Close()
+	time.Sleep(60 * time.Millisecond) // let the watcher record v1
+
+	mu.Lock()
+	body = "# v2"
+	mu.Unlock()
+
+	select {
+	case <-reloadCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for reload event after remote change")
 	}
 }

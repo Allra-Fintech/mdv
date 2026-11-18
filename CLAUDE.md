@@ -34,6 +34,7 @@ internal/mdv/
   hub.go              — SSE broadcast hub
   watcher.go          — fsnotify file watcher
   server.go           — HTTP routes and handlers
+  source.go           — Source interface: local file vs remote http(s) URL; WatchURL poller
   renderer.go         — goldmark Markdown→HTML pipeline
   template.go         — full page HTML template (CSS + JS inline)
   pdf.go              — headless Chrome PDF export
@@ -55,6 +56,8 @@ fsnotify event → WatchFile() → Hub.Broadcast()
 - **Watcher watches both the file and its parent directory.** Atomic-write editors (Vim, JetBrains) replace the inode on save, so watching the file alone misses events. Only `Write`/`Create` events whose path matches the target file trigger a broadcast.
 
 - **`/content` returns an HTML fragment; `GET /<file>.md` returns a full page.** The SSE JS calls `/content?path=` for partial refresh (preserving scroll), while direct navigation renders through `pageTemplate`.
+
+- **Documents come from a `Source`.** `localSource` reads from disk; `remoteSource` fetches over HTTP, resolving sibling `.md` files and assets against the document's directory URL (paths are cleaned so `/../` can't climb above it) and proxying assets through the local server. Remote live reload is `WatchURL` polling + body hash, not fsnotify.
 
 - **`newMarkdown` is stateless and created per request.** goldmark isn't safe for concurrent use so a fresh instance is built each time.
 
