@@ -275,11 +275,61 @@ func TestPollMainComparesAgainstServedVersion(t *testing.T) {
 	set("B")
 	rs.ReadMarkdown(ctx, "") // page renders B
 	set("A")                 // source reverts before the first poll
-	if changed, _ := rs.pollMain(ctx); !changed {
-		t.Fatal("poll of A after serving B should report a change")
+	if changed, err := rs.pollMain(ctx); err != nil || !changed {
+		t.Fatalf("poll of A after serving B: changed = %v, err = %v; want a change", changed, err)
 	}
-	if changed, _ := rs.pollMain(ctx); changed {
-		t.Fatal("unchanged poll should not report a change")
+	if changed, err := rs.pollMain(ctx); err != nil || changed {
+		t.Fatalf("unchanged poll: changed = %v, err = %v; want no change", changed, err)
+	}
+}
+
+func TestPollMainNotifiesAfterAnotherTabLoadedNewVersion(t *testing.T) {
+	var mu sync.Mutex
+	body := "A"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+
+	s, err := NewRemoteSource(srv.URL + "/doc.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs := s.(*remoteSource)
+	ctx := context.Background()
+
+	rs.ReadMarkdown(ctx, "") // tab 1 renders A
+	mu.Lock()
+	body = "B"
+	mu.Unlock()
+	rs.ReadMarkdown(ctx, "") // tab 2 renders B before the next poll
+	if changed, err := rs.pollMain(ctx); err != nil || !changed {
+		t.Fatalf("changed = %v, err = %v; tab 1 still shows A and must be notified", changed, err)
+	}
+	if changed, err := rs.pollMain(ctx); err != nil || changed {
+		t.Fatalf("changed = %v, err = %v; B was already announced", changed, err)
+	}
+}
+
+func TestRemoteOversizedAssetWithoutLengthIsRejected(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/big.bin" {
+			chunk := make([]byte, 1<<20)
+			for i := 0; i <= maxRemoteAssetSize>>20; i++ {
+				w.Write(chunk)
+				w.(http.Flusher).Flush() // forces chunked encoding: no Content-Length
+			}
+			return
+		}
+		w.Write([]byte("# doc"))
+	}))
+	defer srv.Close()
+
+	rec := serveRemote(t, srv.URL+"/doc.md", "/big.bin")
+	if rec.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadGateway)
 	}
 }
 

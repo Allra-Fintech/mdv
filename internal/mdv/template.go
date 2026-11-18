@@ -281,32 +281,38 @@ pre.mermaid {
       });
   }
 
+  var loadSeq = 0;
   function loadPath(pathname, hash, options) {
+    // pathname is the decoded document path sent to /content;
+    // opts.historyURL is the percent-encoded path recorded in history.
+    // Only the newest load may touch the page, so a slow, older response
+    // cannot overwrite newer content. Resolves true when it was applied.
     var opts = options || {};
+    var seq = ++loadSeq;
     return fetch('/content?path=' + encodeURIComponent(pathname))
       .then(function (r) {
-        if (!r.ok) {
-          var e = new Error('HTTP ' + r.status);
-          e.fetchFailed = true;
-          throw e;
-        }
+        if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.text();
-      }, function (err) {
+      })
+      .catch(function (err) {
         err.fetchFailed = true;
         throw err;
       })
       .then(function (html) {
+        if (seq !== loadSeq) return false;
         content.innerHTML = html;
         stripCrossOrigin(content);
         currentPath = pathname;
         document.title = pathname.split('/').pop() || document.title;
 
         if (opts.pushState) {
-          history.pushState({ path: pathname }, '', pathname + (hash || ''));
+          history.pushState({ path: pathname }, '', (opts.historyURL || pathname) + (hash || ''));
         }
 
         return renderMermaid(content).then(function () {
+          if (seq !== loadSeq) return false;
           applyHashOrScroll(hash, opts.scrollY);
+          return true;
         });
       });
   }
@@ -328,18 +334,19 @@ pre.mermaid {
     if (url.origin !== location.origin) return;
     if (url.pathname === location.pathname && url.hash) {
       e.preventDefault();
-      history.pushState({ path: currentPath }, '', currentPath + url.hash);
+      history.pushState({ path: currentPath }, '', location.pathname + url.hash);
       applyHashOrScroll(url.hash);
       return;
     }
     if (!/\.md$/i.test(url.pathname)) return;
     e.preventDefault();
-    loadPath(decodePath(url.pathname), url.hash, { pushState: true })
+    loadPath(decodePath(url.pathname), url.hash, { pushState: true, historyURL: url.pathname })
       .catch(function (err) { console.error('mdview navigate error:', err); });
   }, true);
 
-  window.addEventListener('popstate', function () {
-    loadPath(decodePath(location.pathname), location.hash)
+  window.addEventListener('popstate', function (e) {
+    var path = (e.state && e.state.path) || decodePath(location.pathname);
+    loadPath(path, location.hash)
       .catch(function (err) { console.error('mdview popstate error:', err); });
   });
 
@@ -353,8 +360,8 @@ pre.mermaid {
     if (gen !== reloadGen) return;
     var scrollY = window.scrollY;
     loadPath(currentPath, window.location.hash, { scrollY: scrollY })
-      .then(function () {
-        if (gen === reloadGen) showIndicator();
+      .then(function (applied) {
+        if (applied && gen === reloadGen) showIndicator();
       })
       .catch(function (err) {
         console.error('mdview reload error:', err);

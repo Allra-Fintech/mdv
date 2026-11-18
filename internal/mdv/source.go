@@ -1,6 +1,7 @@
 package mdv
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"errors"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -122,7 +124,13 @@ type remoteSource struct {
 	mu      sync.Mutex
 	base    *url.URL // directory URL that relative paths resolve against
 	baseSet bool     // base was taken from the first successful main fetch
-	served  [sha256.Size]byte
+
+	// served is the newest main-document version handed to a page;
+	// announced is the version subscribers were last told about. A poll
+	// broadcasts when it differs from either, so tabs that rendered an
+	// older version are told even after another tab loaded the new one.
+	served, announced [sha256.Size]byte
+	haveAnnounced     bool
 }
 
 // NewRemoteSource returns a Source backed by an http(s) Markdown URL.
@@ -207,14 +215,17 @@ func (s *remoteSource) ReadMarkdown(ctx context.Context, urlPath string) ([]byte
 			s.base, s.baseSet = dirURL(final), true
 		}
 		s.served = sha256.Sum256(body)
+		if !s.haveAnnounced {
+			s.announced, s.haveAnnounced = s.served, true
+		}
 		s.mu.Unlock()
 	}
 	return body, nil
 }
 
-// pollMain fetches the main document and reports whether it differs from the
-// newest version served to a page (or announced by a previous poll). A
-// differing version is recorded as announced.
+// pollMain fetches the main document and reports whether pages need to
+// reload: the polled version differs from the last announced one or from the
+// newest one served. The polled version then becomes both.
 func (s *remoteSource) pollMain(ctx context.Context) (bool, error) {
 	body, _, err := fetchRemote(ctx, s.client, s.doc)
 	if err != nil {
@@ -223,10 +234,10 @@ func (s *remoteSource) pollMain(ctx context.Context) (bool, error) {
 	sum := sha256.Sum256(body)
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if sum == s.served {
+	if s.haveAnnounced && sum == s.announced && sum == s.served {
 		return false, nil
 	}
-	s.served = sum
+	s.served, s.announced, s.haveAnnounced = sum, sum, true
 	return true, nil
 }
 
@@ -248,6 +259,22 @@ func (s *remoteSource) ServeAsset(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "remote asset exceeds 50 MiB limit", http.StatusBadGateway)
 		return
 	}
+	// Without a trustworthy length, read one byte past the limit before
+	// committing to a status so an oversized asset is never sent truncated.
+	var body io.Reader = resp.Body
+	if resp.ContentLength < 0 || resp.Uncompressed {
+		buf, err := io.ReadAll(io.LimitReader(resp.Body, maxRemoteAssetSize+1))
+		if err != nil {
+			http.Error(w, "fetch error: reading remote asset failed", http.StatusBadGateway)
+			return
+		}
+		if len(buf) > maxRemoteAssetSize {
+			http.Error(w, "remote asset exceeds 50 MiB limit", http.StatusBadGateway)
+			return
+		}
+		body = bytes.NewReader(buf)
+		resp.Header.Set("Content-Length", strconv.Itoa(len(buf)))
+	}
 
 	for _, h := range []string{"Content-Type", "Content-Length", "Last-Modified", "ETag"} {
 		if v := resp.Header.Get(h); v != "" {
@@ -259,7 +286,7 @@ func (s *remoteSource) ServeAsset(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", "sandbox")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, io.LimitReader(resp.Body, maxRemoteAssetSize))
+	io.Copy(w, body)
 }
 
 // fetchRemote GETs u and returns the body and the final URL after redirects.
