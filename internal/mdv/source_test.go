@@ -2,10 +2,13 @@ package mdv
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -28,6 +31,12 @@ func newRemoteFixture(t *testing.T) *httptest.Server {
 			return
 		case "/docs/sized.png":
 			w.Write([]byte("size=" + r.URL.Query().Get("size")))
+			return
+		case "/hop":
+			http.Redirect(w, r, "/docs/referer.md", http.StatusFound)
+			return
+		case "/docs/referer.md":
+			w.Write([]byte("referer=" + r.Header.Get("Referer")))
 			return
 		case "/docs/signed.md":
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -157,6 +166,9 @@ func TestRemoteOmitsRawHTML(t *testing.T) {
 func TestRemoteAssetsAreSandboxed(t *testing.T) {
 	fx := newRemoteFixture(t)
 	rec := serveRemote(t, fx.URL+"/docs/README.md", "/page.html")
+	if rec.Code != http.StatusOK || rec.Body.String() != "<script>alert(1)</script>" {
+		t.Fatalf("asset not served: %d %q", rec.Code, rec.Body)
+	}
 	if got := rec.Header().Get("Content-Security-Policy"); got != "sandbox" {
 		t.Fatalf("Content-Security-Policy = %q, want sandbox", got)
 	}
@@ -226,5 +238,54 @@ func TestAddressGuard(t *testing.T) {
 	}
 	if err := addressGuard(true)("tcp", "127.0.0.1:80", nil); err != nil {
 		t.Errorf("permissive guard refused loopback: %v", err)
+	}
+}
+
+func TestRemoteRedirectDropsReferer(t *testing.T) {
+	fx := newRemoteFixture(t)
+	src, err := NewRemoteSource(fx.URL + "/hop?sig=SECRET")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := src.ReadMarkdown(context.Background(), "")
+	if err != nil || string(body) != "referer=" {
+		t.Fatalf("body = %q, err = %v", body, err)
+	}
+}
+
+func TestPollMainComparesAgainstServedVersion(t *testing.T) {
+	var mu sync.Mutex
+	body := "A"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Write([]byte(body))
+	}))
+	defer srv.Close()
+	set := func(b string) { mu.Lock(); body = b; mu.Unlock() }
+
+	s, err := NewRemoteSource(srv.URL + "/doc.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	rs := s.(*remoteSource)
+	ctx := context.Background()
+
+	rs.ReadMarkdown(ctx, "") // startup check sees A
+	set("B")
+	rs.ReadMarkdown(ctx, "") // page renders B
+	set("A")                 // source reverts before the first poll
+	if changed, _ := rs.pollMain(ctx); !changed {
+		t.Fatal("poll of A after serving B should report a change")
+	}
+	if changed, _ := rs.pollMain(ctx); changed {
+		t.Fatal("unchanged poll should not report a change")
+	}
+}
+
+func TestRedactErrDropsUnknownInnerError(t *testing.T) {
+	err := redactErr(&url.Error{Op: "Get", URL: "https://h/x?sig=S", Err: errors.New(`bad Location "https://h/?sig=S"`)})
+	if strings.Contains(err.Error(), "sig=S") {
+		t.Fatalf("leaked: %v", err)
 	}
 }

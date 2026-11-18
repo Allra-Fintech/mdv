@@ -57,7 +57,7 @@ fsnotify event → WatchFile() → Hub.Broadcast()
 
 - **`/content` returns an HTML fragment; `GET /<file>.md` returns a full page.** The SSE JS calls `/content?path=` for partial refresh (preserving scroll), while direct navigation renders through `pageTemplate`.
 
-- **Documents come from a `Source`.** `localSource` reads from disk; `remoteSource` fetches over HTTP, resolving sibling `.md` files and assets against the document's directory URL (paths are cleaned so `/../` can't climb above it) and proxying assets through the local server. Remote content is untrusted: raw HTML is omitted (`AllowRawHTML() == false`), proxied assets get `Content-Security-Policy: sandbox`, and the dialer refuses loopback/private/link-local IPs (incl. via redirects) unless the document host itself is private. Remote live reload is `WatchRemote` polling + body hash against the initially rendered body, not fsnotify.
+- **Documents come from a `Source`.** `localSource` reads from disk; `remoteSource` fetches over HTTP, resolving sibling `.md` files and assets against the document's directory URL (paths are cleaned so `/../` can't climb above it) and proxying assets through the local server. Remote content is untrusted: raw HTML is omitted (`AllowRawHTML() == false`), proxied assets get `Content-Security-Policy: sandbox`, and the dialer refuses loopback/private/link-local IPs (incl. via redirects) unless the document host itself is private. Remote live reload is `WatchRemote` polling + body hash against the newest version served to a page, not fsnotify. The relative-link base is fixed by the first successful fetch (after redirects).
 
 - **`newMarkdown` is stateless and created per request.** goldmark isn't safe for concurrent use so a fresh instance is built each time.
 

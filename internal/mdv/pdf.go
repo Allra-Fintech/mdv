@@ -1,6 +1,7 @@
 package mdv
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"net/http"
@@ -50,7 +51,13 @@ func WaitForServer(addr string) {
 // The page is fetched first so an error response fails the export instead of
 // being printed as if it were the document.
 func PrintToPDF(pageURL, output string) error {
-	resp, err := http.Get(pageURL)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return err
 	}

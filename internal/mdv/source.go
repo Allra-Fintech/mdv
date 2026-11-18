@@ -19,8 +19,12 @@ import (
 	"time"
 )
 
-// maxRemoteMarkdownSize caps how much of a remote Markdown document is read.
-const maxRemoteMarkdownSize = 10 << 20 // 10 MiB
+const (
+	// maxRemoteMarkdownSize caps how much of a remote Markdown document is read.
+	maxRemoteMarkdownSize = 10 << 20 // 10 MiB
+	// maxRemoteAssetSize caps how much of a remote asset is proxied.
+	maxRemoteAssetSize = 50 << 20 // 50 MiB
+)
 
 // Source supplies the Markdown documents and assets that the server renders.
 // URL paths passed to it are server-relative (e.g. "/docs/other.md").
@@ -115,8 +119,10 @@ type remoteSource struct {
 	mainPath string
 	client   *http.Client
 
-	mu   sync.RWMutex
-	base *url.URL // directory URL that relative paths resolve against
+	mu      sync.Mutex
+	base    *url.URL // directory URL that relative paths resolve against
+	baseSet bool     // base was taken from the first successful main fetch
+	served  [sha256.Size]byte
 }
 
 // NewRemoteSource returns a Source backed by an http(s) Markdown URL.
@@ -147,8 +153,22 @@ func NewRemoteSource(rawURL string) (Source, error) {
 		doc:      doc,
 		base:     dirURL(doc),
 		mainPath: mainPathFor(name),
-		client:   &http.Client{Timeout: 30 * time.Second, Transport: transport},
+		client: &http.Client{
+			Timeout:       30 * time.Second,
+			Transport:     transport,
+			CheckRedirect: checkRedirect,
+		},
 	}, nil
+}
+
+// checkRedirect keeps Go's 10-hop limit and drops the Referer header, which
+// would otherwise carry the previous URL's (possibly signed) query.
+func checkRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	req.Header.Del("Referer")
+	return nil
 }
 
 func dirURL(u *url.URL) *url.URL {
@@ -167,8 +187,8 @@ func (s *remoteSource) resolve(urlPath string) *url.URL {
 		return s.doc
 	}
 	rel := strings.TrimPrefix(path.Clean("/"+urlPath), "/")
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.base.ResolveReference(&url.URL{Path: rel})
 }
 
@@ -179,13 +199,35 @@ func (s *remoteSource) ReadMarkdown(ctx context.Context, urlPath string) ([]byte
 		return nil, err
 	}
 	if target == s.doc {
-		// After redirects, relative links resolve against where the document
-		// actually lives.
 		s.mu.Lock()
-		s.base = dirURL(final)
+		// Relative links resolve against where the document actually lives
+		// after redirects. The base is fixed by the first successful fetch so
+		// pages already shown keep resolving their assets consistently.
+		if !s.baseSet {
+			s.base, s.baseSet = dirURL(final), true
+		}
+		s.served = sha256.Sum256(body)
 		s.mu.Unlock()
 	}
 	return body, nil
+}
+
+// pollMain fetches the main document and reports whether it differs from the
+// newest version served to a page (or announced by a previous poll). A
+// differing version is recorded as announced.
+func (s *remoteSource) pollMain(ctx context.Context) (bool, error) {
+	body, _, err := fetchRemote(ctx, s.client, s.doc)
+	if err != nil {
+		return false, err
+	}
+	sum := sha256.Sum256(body)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sum == s.served {
+		return false, nil
+	}
+	s.served = sum
+	return true, nil
 }
 
 func (s *remoteSource) ServeAsset(w http.ResponseWriter, r *http.Request) {
@@ -202,6 +244,10 @@ func (s *remoteSource) ServeAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer resp.Body.Close()
+	if resp.ContentLength > maxRemoteAssetSize {
+		http.Error(w, "remote asset exceeds 50 MiB limit", http.StatusBadGateway)
+		return
+	}
 
 	for _, h := range []string{"Content-Type", "Content-Length", "Last-Modified", "ETag"} {
 		if v := resp.Header.Get(h); v != "" {
@@ -213,7 +259,7 @@ func (s *remoteSource) ServeAsset(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Security-Policy", "sandbox")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.WriteHeader(resp.StatusCode)
-	io.Copy(w, resp.Body)
+	io.Copy(w, io.LimitReader(resp.Body, maxRemoteAssetSize))
 }
 
 // fetchRemote GETs u and returns the body and the final URL after redirects.
@@ -243,15 +289,21 @@ func fetchRemote(ctx context.Context, client *http.Client, u *url.URL) ([]byte, 
 	return body, resp.Request.URL, nil
 }
 
-// redactErr strips userinfo and query from the URL inside a *url.Error.
+// redactErr strips userinfo and query from the URL inside a *url.Error. The
+// inner error is kept only when it is a network or context error; anything
+// else (e.g. an unparseable redirect Location, which Go quotes verbatim) is
+// replaced with a fixed message.
 func redactErr(err error) error {
 	var ue *url.Error
-	if errors.As(err, &ue) {
-		c := *ue
-		c.URL = RedactURL(ue.URL)
-		return &c
+	if !errors.As(err, &ue) {
+		return err
 	}
-	return err
+	inner := ue.Err
+	var ne net.Error
+	if !errors.As(inner, &ne) && !errors.Is(inner, context.Canceled) && !errors.Is(inner, context.DeadlineExceeded) {
+		inner = errors.New("request failed")
+	}
+	return &url.Error{Op: ue.Op, URL: RedactURL(ue.URL), Err: inner}
 }
 
 // hostIsPrivate reports whether host is (or resolves only to) a loopback,
@@ -260,12 +312,17 @@ func hostIsPrivate(host string) bool {
 	if host == "localhost" {
 		return true
 	}
-	ips, err := net.LookupIP(host)
-	if err != nil || len(ips) == 0 {
+	if ip := net.ParseIP(host); ip != nil {
+		return isPrivateIP(ip)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil || len(addrs) == 0 {
 		return false
 	}
-	for _, ip := range ips {
-		if !isPrivateIP(ip) {
+	for _, a := range addrs {
+		if !isPrivateIP(a.IP) {
 			return false
 		}
 	}
@@ -297,10 +354,13 @@ func addressGuard(allowPrivate bool) func(network, address string, c syscall.Raw
 }
 
 // WatchRemote polls src's main document every interval and calls
-// hub.Broadcast() when its body differs from the last one seen, starting from
-// initial (the body already shown to the user). It returns when ctx is done.
-func WatchRemote(ctx context.Context, src Source, initial []byte, interval time.Duration, hub *Hub) {
-	last := sha256.Sum256(initial)
+// hub.Broadcast() when it differs from the newest version served to a page.
+// It does nothing for sources that are not remote, and returns when ctx is done.
+func WatchRemote(ctx context.Context, src Source, interval time.Duration, hub *Hub) {
+	rs, ok := src.(*remoteSource)
+	if !ok {
+		return
+	}
 	failing := false
 
 	ticker := time.NewTicker(interval)
@@ -311,7 +371,7 @@ func WatchRemote(ctx context.Context, src Source, initial []byte, interval time.
 			return
 		case <-ticker.C:
 		}
-		body, err := src.ReadMarkdown(ctx, "")
+		changed, err := rs.pollMain(ctx)
 		if err != nil {
 			if ctx.Err() != nil {
 				return
@@ -326,8 +386,7 @@ func WatchRemote(ctx context.Context, src Source, initial []byte, interval time.
 			log.Printf("watcher: remote document reachable again")
 			failing = false
 		}
-		if sum := sha256.Sum256(body); sum != last {
-			last = sum
+		if changed {
 			hub.Broadcast()
 		}
 	}

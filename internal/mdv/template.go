@@ -223,7 +223,9 @@ pre.mermaid {
 
   function applyHashOrScroll(hash, scrollY) {
     if (hash) {
-      var target = document.getElementById(decodeURIComponent(hash.slice(1)));
+      var id;
+      try { id = decodeURIComponent(hash.slice(1)); } catch (_) { id = hash.slice(1); }
+      var target = document.getElementById(id);
       if (target) {
         target.scrollIntoView();
         return;
@@ -283,8 +285,15 @@ pre.mermaid {
     var opts = options || {};
     return fetch('/content?path=' + encodeURIComponent(pathname))
       .then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
+        if (!r.ok) {
+          var e = new Error('HTTP ' + r.status);
+          e.fetchFailed = true;
+          throw e;
+        }
         return r.text();
+      }, function (err) {
+        err.fetchFailed = true;
+        throw err;
       })
       .then(function (html) {
         content.innerHTML = html;
@@ -300,6 +309,12 @@ pre.mermaid {
           applyHashOrScroll(hash, opts.scrollY);
         });
       });
+  }
+
+  // URL.pathname is percent-encoded; the server expects the decoded path
+  // (as in currentPath), which loadPath query-encodes exactly once.
+  function decodePath(pathname) {
+    try { return decodeURIComponent(pathname); } catch (_) { return pathname; }
   }
 
   stripCrossOrigin(content);
@@ -319,34 +334,36 @@ pre.mermaid {
     }
     if (!/\.md$/i.test(url.pathname)) return;
     e.preventDefault();
-    loadPath(url.pathname, url.hash, { pushState: true })
+    loadPath(decodePath(url.pathname), url.hash, { pushState: true })
       .catch(function (err) { console.error('mdview navigate error:', err); });
   }, true);
 
   window.addEventListener('popstate', function () {
-    loadPath(location.pathname, location.hash)
+    loadPath(decodePath(location.pathname), location.hash)
       .catch(function (err) { console.error('mdview popstate error:', err); });
   });
 
   var es = new EventSource('/events');
   // A reload event is sent once per change, so a failed fetch is retried
   // with backoff instead of leaving stale content until the next change.
-  var reloadRetry = null;
-  function reload(attempt) {
-    clearTimeout(reloadRetry);
+  // Only the newest reload generation may retry; errors after the content
+  // was swapped in are not retried.
+  var reloadGen = 0;
+  function reload(gen, attempt) {
+    if (gen !== reloadGen) return;
     var scrollY = window.scrollY;
     loadPath(currentPath, window.location.hash, { scrollY: scrollY })
       .then(function () {
-        showIndicator();
+        if (gen === reloadGen) showIndicator();
       })
       .catch(function (err) {
         console.error('mdview reload error:', err);
-        if (attempt < 5) {
-          reloadRetry = setTimeout(function () { reload(attempt + 1); }, 1000 * Math.pow(2, attempt));
+        if (err && err.fetchFailed && gen === reloadGen && attempt < 5) {
+          setTimeout(function () { reload(gen, attempt + 1); }, 1000 * Math.pow(2, attempt));
         }
       });
   }
-  es.addEventListener('reload', function () { reload(0); });
+  es.addEventListener('reload', function () { reload(++reloadGen, 0); });
 
   es.onerror = function () {
     // Connection lost — silently retry (EventSource auto-reconnects)

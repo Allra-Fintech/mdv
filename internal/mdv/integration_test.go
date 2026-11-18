@@ -234,7 +234,7 @@ func TestHTMLExport(t *testing.T) {
 }
 
 // TestLiveReloadOnRemoteChange verifies that WatchRemote broadcasts a reload
-// when the polled remote document's body differs from the initial one.
+// when the polled remote document differs from the version served to a page.
 func TestLiveReloadOnRemoteChange(t *testing.T) {
 	var mu sync.Mutex
 	body := "# v1"
@@ -256,8 +256,10 @@ func TestLiveReloadOnRemoteChange(t *testing.T) {
 	resp, reloadCh := openEventsStream(t, srv.URL)
 	defer resp.Body.Close()
 
-	// The baseline is the body already shown, so no polling race exists:
-	// the first successful poll after the change must broadcast.
+	// Serve v1 to a page first; that becomes the watcher's baseline.
+	if _, err := src.ReadMarkdown(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
 	mu.Lock()
 	body = "# v2"
 	mu.Unlock()
@@ -265,7 +267,7 @@ func TestLiveReloadOnRemoteChange(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
-		WatchRemote(ctx, src, []byte("# v1"), 20*time.Millisecond, hub)
+		WatchRemote(ctx, src, 20*time.Millisecond, hub)
 		close(done)
 	}()
 	defer func() {

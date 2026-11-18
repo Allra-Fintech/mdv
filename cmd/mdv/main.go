@@ -43,14 +43,13 @@ func main() {
 	hub := mdv.NewHub()
 
 	var src mdv.Source
-	var initial []byte
 	if mdv.IsRemote(target) {
 		s, err := mdv.NewRemoteSource(target)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
-		if initial, err = s.ReadMarkdown(context.Background(), ""); err != nil {
+		if _, err := s.ReadMarkdown(context.Background(), ""); err != nil {
 			fmt.Fprintf(os.Stderr, "error: %v\n", err)
 			os.Exit(1)
 		}
@@ -107,7 +106,7 @@ func main() {
 
 	if mdv.IsRemote(target) {
 		if *poll > 0 {
-			go mdv.WatchRemote(context.Background(), src, initial, *poll, hub)
+			go mdv.WatchRemote(context.Background(), src, *poll, hub)
 		}
 	} else {
 		go mdv.WatchFile(target, hub)
