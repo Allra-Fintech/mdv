@@ -3,3 +3,4 @@
 .claude/settings.local.json
 
 *.pdf
+.DS_Store

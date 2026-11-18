@@ -4,11 +4,13 @@ package mdv
 
 import (
 	"bufio"
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -228,5 +230,54 @@ func TestHTMLExport(t *testing.T) {
 	}
 	if !strings.Contains(string(body), "HTML Test") {
 		t.Fatalf("HTML file missing rendered content: %s", body)
+	}
+}
+
+// TestLiveReloadOnRemoteChange verifies that WatchRemote broadcasts a reload
+// when the polled remote document differs from the version served to a page.
+func TestLiveReloadOnRemoteChange(t *testing.T) {
+	var mu sync.Mutex
+	body := "# v1"
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Write([]byte(body))
+	}))
+	defer remote.Close()
+
+	src, err := NewRemoteSource(remote.URL + "/doc.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	hub := NewHub()
+	srv := httptest.NewServer(NewSourceServer(src, "github", hub))
+	defer srv.Close()
+
+	resp, reloadCh := openEventsStream(t, srv.URL)
+	defer resp.Body.Close()
+
+	// Serve v1 to a page first; that becomes the watcher's baseline.
+	if _, err := src.ReadMarkdown(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	body = "# v2"
+	mu.Unlock()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		WatchRemote(ctx, src, 20*time.Millisecond, hub)
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		<-done
+	}()
+
+	select {
+	case <-reloadCh:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for reload event after remote change")
 	}
 }

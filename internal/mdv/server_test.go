@@ -65,7 +65,8 @@ func TestPageTemplateSupportsHistoryNavigation(t *testing.T) {
 		"renderMermaid(content).then(function () {",
 		"window.addEventListener('popstate'",
 		"loadPath(currentPath, window.location.hash, { scrollY: scrollY })",
-		"history.pushState({ path: pathname }, '', pathname + (hash || ''))",
+		"history.pushState({ path: pathname }, '', (opts.historyURL || pathname) + (hash || ''))",
+		"if (seq !== loadSeq) return false;",
 	}
 	for _, want := range checks {
 		if !strings.Contains(body, want) {

@@ -15,6 +15,7 @@ A CLI tool that renders Markdown files in the browser with GitHub-style formatti
 - PDF export — `--pdf output.pdf` flag (headless Chrome) or "Export PDF" button in the browser
 - HTML export — `--html output.html` flag saves the fully rendered, self-contained page
 - Serves relative local assets from the Markdown directory (e.g. `![demo](./recording.gif)`)
+- Remote documents — pass an `http(s)://` URL instead of a file; relative links and images are proxied from the same remote directory, and live reload polls for changes (`--poll`). Remote content is treated as untrusted: raw HTML in the Markdown is not rendered, proxied assets are sandboxed, and requests to loopback/private addresses are refused unless the document itself is hosted on one. `HTTP(S)_PROXY` is not used for remote fetches.
 - Auto-increments port if the default is taken (up to 20 attempts)
 - Binds to `127.0.0.1` only — no LAN exposure
 
@@ -69,7 +70,7 @@ make install        # installs to ~/.local/bin (default) as mdv
 ## Usage
 
 ```
-mdv [flags] <file.md>
+mdv [flags] <file.md | http(s)://host/path/doc.md>
 ```
 
 ### Flags
@@ -81,6 +82,7 @@ mdv [flags] <file.md>
 | `--theme` | string | `"github"` | Chroma highlight theme |
 | `--pdf` | string | `""` | Export to PDF file and exit (requires Chrome or Chromium) |
 | `--html` | string | `""` | Export to HTML file and exit |
+| `--poll` | duration | `5s` | Live-reload poll interval for remote URLs (`0` disables) |
 | `--version` | bool | `false` | Print version and exit |
 
 ### Examples
@@ -101,6 +103,12 @@ mdv --pdf output.pdf README.md
 # Export to HTML
 mdv --html output.html README.md
 
+# View a remote document (relative links/images resolve against its directory)
+mdv https://raw.githubusercontent.com/Allra-Fintech/mdv/main/README.md
+
+# Remote document, poll for changes every 30s (or --poll 0 to disable)
+mdv --poll 30s https://example.com/docs/guide.md
+
 # Render Mermaid diagrams in fenced mermaid blocks
 mdv diagrams.md
 ```
@@ -120,13 +128,14 @@ Example Mermaid block:
 | `GET /<file>.md` | Full HTML page (template + rendered markdown) |
 | `GET /content?path=/<file>.md` | HTML fragment only (for SSE partial refresh) |
 | `GET /events` | SSE stream for live reload |
-| `GET /<asset>` | Static files from the Markdown file directory |
+| `GET /<asset>` | Static files from the Markdown file directory (proxied from the remote directory for URLs) |
 
 ## Architecture
 
 ```
 cmd/mdv/main.go            — CLI flag parsing, resolvePort, openBrowser, wiring
 internal/mdv/server.go     — HTTP routes: GET /, GET /content, GET /events (SSE)
+internal/mdv/source.go     — Document sources: local file or remote http(s) URL; WatchRemote poller
 internal/mdv/renderer.go   — goldmark setup with GFM, Chroma highlighting, Mermaid block handling
 internal/mdv/hub.go        — SSE broadcast hub (Register/Unregister/Broadcast)
 internal/mdv/watcher.go    — fsnotify file watcher → hub.Broadcast()

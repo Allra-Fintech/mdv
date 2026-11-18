@@ -223,7 +223,9 @@ pre.mermaid {
 
   function applyHashOrScroll(hash, scrollY) {
     if (hash) {
-      var target = document.getElementById(decodeURIComponent(hash.slice(1)));
+      var id;
+      try { id = decodeURIComponent(hash.slice(1)); } catch (_) { id = hash.slice(1); }
+      var target = document.getElementById(id);
       if (target) {
         target.scrollIntoView();
         return;
@@ -279,27 +281,46 @@ pre.mermaid {
       });
   }
 
+  var loadSeq = 0;
   function loadPath(pathname, hash, options) {
+    // pathname is the decoded document path sent to /content;
+    // opts.historyURL is the percent-encoded path recorded in history.
+    // Only the newest load may touch the page, so a slow, older response
+    // cannot overwrite newer content. Resolves true when it was applied.
     var opts = options || {};
+    var seq = ++loadSeq;
     return fetch('/content?path=' + encodeURIComponent(pathname))
       .then(function (r) {
         if (!r.ok) throw new Error('HTTP ' + r.status);
         return r.text();
       })
+      .catch(function (err) {
+        err.fetchFailed = true;
+        throw err;
+      })
       .then(function (html) {
+        if (seq !== loadSeq) return false;
         content.innerHTML = html;
         stripCrossOrigin(content);
         currentPath = pathname;
         document.title = pathname.split('/').pop() || document.title;
 
         if (opts.pushState) {
-          history.pushState({ path: pathname }, '', pathname + (hash || ''));
+          history.pushState({ path: pathname }, '', (opts.historyURL || pathname) + (hash || ''));
         }
 
         return renderMermaid(content).then(function () {
+          if (seq !== loadSeq) return false;
           applyHashOrScroll(hash, opts.scrollY);
+          return true;
         });
       });
+  }
+
+  // URL.pathname is percent-encoded; the server expects the decoded path
+  // (as in currentPath), which loadPath query-encodes exactly once.
+  function decodePath(pathname) {
+    try { return decodeURIComponent(pathname); } catch (_) { return pathname; }
   }
 
   stripCrossOrigin(content);
@@ -313,30 +334,43 @@ pre.mermaid {
     if (url.origin !== location.origin) return;
     if (url.pathname === location.pathname && url.hash) {
       e.preventDefault();
-      history.pushState({ path: currentPath }, '', currentPath + url.hash);
+      history.pushState({ path: currentPath }, '', location.pathname + url.hash);
       applyHashOrScroll(url.hash);
       return;
     }
     if (!/\.md$/i.test(url.pathname)) return;
     e.preventDefault();
-    loadPath(url.pathname, url.hash, { pushState: true })
+    loadPath(decodePath(url.pathname), url.hash, { pushState: true, historyURL: url.pathname })
       .catch(function (err) { console.error('mdview navigate error:', err); });
   }, true);
 
-  window.addEventListener('popstate', function () {
-    loadPath(location.pathname, location.hash)
+  window.addEventListener('popstate', function (e) {
+    var path = (e.state && e.state.path) || decodePath(location.pathname);
+    loadPath(path, location.hash)
       .catch(function (err) { console.error('mdview popstate error:', err); });
   });
 
   var es = new EventSource('/events');
-  es.addEventListener('reload', function () {
+  // A reload event is sent once per change, so a failed fetch is retried
+  // with backoff instead of leaving stale content until the next change.
+  // Only the newest reload generation may retry; errors after the content
+  // was swapped in are not retried.
+  var reloadGen = 0;
+  function reload(gen, attempt) {
+    if (gen !== reloadGen) return;
     var scrollY = window.scrollY;
     loadPath(currentPath, window.location.hash, { scrollY: scrollY })
-      .then(function () {
-        showIndicator();
+      .then(function (applied) {
+        if (applied && gen === reloadGen) showIndicator();
       })
-      .catch(function (err) { console.error('mdview reload error:', err); });
-  });
+      .catch(function (err) {
+        console.error('mdview reload error:', err);
+        if (err && err.fetchFailed && gen === reloadGen && attempt < 5) {
+          setTimeout(function () { reload(gen, attempt + 1); }, 1000 * Math.pow(2, attempt));
+        }
+      });
+  }
+  es.addEventListener('reload', function () { reload(++reloadGen, 0); });
 
   es.onerror = function () {
     // Connection lost — silently retry (EventSource auto-reconnects)
